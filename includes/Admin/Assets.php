@@ -1,0 +1,71 @@
+<?php
+/**
+ * Admin asset registration.
+ *
+ * @package PluginConflictDebugger
+ */
+
+declare(strict_types=1);
+
+namespace PluginConflictDebugger\Admin;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+final class Assets {
+	/**
+	 * Hooks asset registration.
+	 *
+	 * @return void
+	 */
+	public function register(): void {
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue' ) );
+	}
+
+	/**
+	 * Enqueues assets only on the plugin screen.
+	 *
+	 * @param string $hook_suffix Current admin page hook suffix.
+	 * @return void
+	 */
+	public function enqueue( string $hook_suffix ): void {
+		if ( 'tools_page_plugin-conflict-debugger' !== $hook_suffix ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			'pcd-admin',
+			PCD_URL . 'assets/css/admin.css',
+			array(),
+			PCD_VERSION
+		);
+
+		wp_enqueue_script(
+			'pcd-admin',
+			PCD_URL . 'assets/js/admin.js',
+			array(),
+			PCD_VERSION,
+			true
+		);
+
+		wp_localize_script(
+			'pcd-admin',
+			'pcdAdmin',
+			array(
+				'scanningLabel' => __( 'Running scan...', 'plugin-conflict-debugger' ),
+				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+				'nonce'         => wp_create_nonce( 'pcd_scan_ajax' ),
+				'i18n'          => array(
+					'starting'     => __( 'Starting background scan...', 'plugin-conflict-debugger' ),
+					'error'        => __( 'Could not start the scan. Please try again.', 'plugin-conflict-debugger' ),
+					'failed'       => __( 'Scan failed. Please review server logs and try again.', 'plugin-conflict-debugger' ),
+					'completed'    => __( 'Scan complete. Refreshing results...', 'plugin-conflict-debugger' ),
+					'running'      => __( 'Scan is running in the background.', 'plugin-conflict-debugger' ),
+					'queued'       => __( 'Scan queued. Waiting for worker...', 'plugin-conflict-debugger' ),
+					'runScan'      => __( 'Run Scan', 'plugin-conflict-debugger' ),
+				),
+			)
+		);
+	}
+}
