@@ -1,6 +1,6 @@
 <?php
 /**
- * Tracks concrete runtime mutations like callback disappearance and asset removal.
+ * Tracks callback-chain mutations on sensitive hooks.
  *
  * @package PluginConflictDebugger
  */
@@ -38,13 +38,6 @@ final class RuntimeMutationTracker {
 	 * @var array<string, array<string, array<string, mixed>>>
 	 */
 	private array $hook_baseline = array();
-
-	/**
-	 * Baseline asset state snapshots.
-	 *
-	 * @var array<string, array<string, array<string, mixed>>>
-	 */
-	private array $asset_baseline = array();
 
 	/**
 	 * Emitted mutation fingerprints.
@@ -93,17 +86,6 @@ final class RuntimeMutationTracker {
 	public function register(): void {
 		add_action( 'init', array( $this, 'capture_hook_baseline' ), 1 );
 		add_action( 'wp_loaded', array( $this, 'compare_hook_snapshots' ), 999 );
-
-		add_action( 'wp_enqueue_scripts', array( $this, 'capture_enqueue_baseline' ), 999 );
-		add_action( 'admin_enqueue_scripts', array( $this, 'capture_enqueue_baseline' ), 999 );
-		add_action( 'login_enqueue_scripts', array( $this, 'capture_enqueue_baseline' ), 999 );
-
-		add_action( 'wp_print_scripts', array( $this, 'compare_asset_snapshots' ), 999 );
-		add_action( 'wp_print_styles', array( $this, 'compare_asset_snapshots' ), 999 );
-		add_action( 'admin_print_scripts', array( $this, 'compare_asset_snapshots' ), 999 );
-		add_action( 'admin_print_styles', array( $this, 'compare_asset_snapshots' ), 999 );
-		add_action( 'login_print_scripts', array( $this, 'compare_asset_snapshots' ), 999 );
-		add_action( 'login_print_styles', array( $this, 'compare_asset_snapshots' ), 999 );
 	}
 
 	/**
@@ -161,9 +143,13 @@ final class RuntimeMutationTracker {
 
 					$this->record_event_once(
 						array(
-							'type'            => 'callback_mutation',
-							'level'           => 'warning',
-							'message'         => sprintf(
+							'event_id'             => TraceEvent::new_event_id(),
+							'request_id'           => TraceEvent::current_request_id(),
+							'sequence'             => TraceEvent::next_sequence(),
+							'type'                 => 'callback_mutation',
+							'evidence_source'      => TraceEvent::SOURCE_TRACE,
+							'level'                => 'warning',
+							'message'              => sprintf(
 								/* translators: 1: removed plugin slug, 2: callback label, 3: hook name, 4: remaining plugin slug. */
 								__( 'Observed callback-chain churn: %1$s callback %2$s was present earlier on %3$s but not in the later snapshot while %4$s callbacks remained attached.', 'plugin-conflict-debugger' ),
 								$removed_owner,
@@ -171,143 +157,29 @@ final class RuntimeMutationTracker {
 								$hook_name,
 								$current_owner
 							),
-							'request_context' => $this->detect_request_context(),
-							'request_uri'     => $this->current_request_uri(),
-							'resource'        => $callback_label,
-							'execution_surface' => $hook_name,
-							'callback_identifier' => $callback_label,
-							'mutation_kind'   => 'callback_chain_churn',
-							'resource_hints'  => array( 'hook:' . $hook_name ),
-							'owner_slugs'     => array( $removed_owner, $current_owner ),
+							'request_context'      => $this->detect_request_context(),
+							'request_uri'          => $this->current_request_uri(),
+							'request_scope'        => $this->current_request_uri(),
+							'scope_type'           => 'path',
+							'resource'             => $callback_label,
+							'resource_type'        => 'callback',
+							'resource_key'         => $callback_label,
+							'execution_surface'    => $hook_name,
+							'hook'                 => $hook_name,
+							'callback_identifier'  => $callback_label,
+							'mutation_kind'        => 'callback_chain_churn',
+							'mutation_status'      => TraceEvent::MUTATION_SUSPECTED,
+							'attribution_status'   => TraceEvent::ATTRIBUTION_UNKNOWN,
+							'contamination_status' => TraceEvent::CONTAMINATION_NONE,
+							'actor_slug'           => '',
+							'target_owner_slug'    => $removed_owner,
+							'resource_hints'       => array( 'hook:' . $hook_name ),
+							'owner_slugs'          => array( $removed_owner, $current_owner ),
 						)
 					);
 				}
 			}
 		}
-	}
-
-	/**
-	 * Captures a late enqueue baseline after plugin enqueue callbacks run.
-	 *
-	 * @return void
-	 */
-	public function capture_enqueue_baseline(): void {
-		$this->asset_baseline = array(
-			'scripts' => $this->snapshot_dependency_store( wp_scripts() ),
-			'styles'  => $this->snapshot_dependency_store( wp_styles() ),
-		);
-	}
-
-	/**
-	 * Compares current asset state against the enqueue baseline.
-	 *
-	 * @return void
-	 */
-	public function compare_asset_snapshots(): void {
-		if ( empty( $this->asset_baseline ) ) {
-			return;
-		}
-
-		$current = array(
-			'scripts' => $this->snapshot_dependency_store( wp_scripts() ),
-			'styles'  => $this->snapshot_dependency_store( wp_styles() ),
-		);
-
-		foreach ( array( 'scripts', 'styles' ) as $type ) {
-			$baseline_queue = (array) ( $this->asset_baseline[ $type ]['queue'] ?? array() );
-			$current_queue  = (array) ( $current[ $type ]['queue'] ?? array() );
-			$baseline_reg   = (array) ( $this->asset_baseline[ $type ]['registered'] ?? array() );
-			$current_reg    = (array) ( $current[ $type ]['registered'] ?? array() );
-
-			foreach ( array_diff( $baseline_queue, $current_queue ) as $handle ) {
-				$this->record_asset_mutation( sanitize_key( (string) $handle ), $type, 'asset_queue_mutation', 'removed from the queue' );
-			}
-
-			foreach ( array_diff_key( $baseline_reg, $current_reg ) as $handle => $data ) {
-				unset( $data );
-				$this->record_asset_mutation( sanitize_key( (string) $handle ), $type, 'asset_registry_mutation', 'deregistered after enqueue' );
-			}
-		}
-	}
-
-	/**
-	 * Records a concrete asset mutation event.
-	 *
-	 * @param string $handle Asset handle.
-	 * @param string $type Dependency type.
-	 * @param string $event_type Event type.
-	 * @param string $mutation_label Mutation label.
-	 * @return void
-	 */
-	private function record_asset_mutation( string $handle, string $type, string $event_type, string $mutation_label ): void {
-		if ( '' === $handle ) {
-			return;
-		}
-
-		$assets      = $this->registry->get_asset_snapshot();
-		$handle_meta = $assets[ $handle ] ?? array();
-		$owner_slug  = sanitize_key( (string) ( $handle_meta['owner_slug'] ?? '' ) );
-
-		if ( '' === $owner_slug ) {
-			return;
-		}
-
-		$candidate_owners = array_values(
-			array_diff(
-				$this->get_asset_pipeline_owners(),
-				array( $owner_slug )
-			)
-		);
-
-		if ( empty( $candidate_owners ) ) {
-			return;
-		}
-
-		foreach ( $candidate_owners as $candidate_owner ) {
-			$this->record_event_once(
-				array(
-					'type'            => $event_type,
-					'level'           => 'warning',
-					'message'         => sprintf(
-						/* translators: 1: asset handle, 2: asset type, 3: mutation label, 4: owner slug, 5: candidate slug. */
-						__( 'Observed %3$s for %2$s handle %1$s. The handle belongs to %4$s while %5$s is active on the asset pipeline in the same request.', 'plugin-conflict-debugger' ),
-						$handle,
-						$type,
-						$mutation_label,
-						$owner_slug,
-						$candidate_owner
-					),
-					'request_context' => $this->detect_request_context(),
-					'request_uri'     => $this->current_request_uri(),
-					'resource'        => $handle,
-					'execution_surface' => 'asset_pipeline',
-					'mutation_kind'   => 'asset_state_mutation',
-					'resource_hints'  => array( 'asset:' . $handle ),
-					'owner_slugs'     => array( $owner_slug, $candidate_owner ),
-				)
-			);
-		}
-	}
-
-	/**
-	 * Returns current owners active on asset pipeline hooks.
-	 *
-	 * @return string[]
-	 */
-	private function get_asset_pipeline_owners(): array {
-		$hooks  = array( 'wp_enqueue_scripts', 'admin_enqueue_scripts', 'login_enqueue_scripts', 'wp_print_scripts', 'wp_print_styles', 'script_loader_tag', 'style_loader_tag' );
-		$owners = array();
-
-		foreach ( $hooks as $hook_name ) {
-			foreach ( $this->snapshot_hook_callbacks( $hook_name ) as $callback_meta ) {
-				$owner_slug = sanitize_key( (string) ( $callback_meta['owner_slug'] ?? '' ) );
-				if ( '' !== $owner_slug ) {
-					$owners[] = $owner_slug;
-				}
-			}
-		}
-
-		return array_values( array_unique( $owners ) );
 	}
 
 	/**
@@ -348,34 +220,6 @@ final class RuntimeMutationTracker {
 		}
 
 		return $snapshot;
-	}
-
-	/**
-	 * Snapshots a dependency store.
-	 *
-	 * @param \WP_Dependencies|false|null $store Dependency store.
-	 * @return array<string, mixed>
-	 */
-	private function snapshot_dependency_store( $store ): array {
-		if ( ! $store ) {
-			return array(
-				'queue'      => array(),
-				'registered' => array(),
-			);
-		}
-
-		$registered = array();
-		foreach ( (array) $store->registered as $handle => $dependency ) {
-			$registered[ sanitize_key( (string) $handle ) ] = array(
-				'handle' => sanitize_key( (string) $handle ),
-				'src'    => (string) ( $dependency->src ?? '' ),
-			);
-		}
-
-		return array(
-			'queue'      => array_map( static fn( $handle ): string => sanitize_key( (string) $handle ), (array) ( $store->queue ?? array() ) ),
-			'registered' => $registered,
-		);
 	}
 
 	/**

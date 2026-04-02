@@ -55,6 +55,7 @@ That means the detector does **not** treat common WordPress behavior as proof of
 - lightweight runtime telemetry
 - JS and failed-request evidence surfaced in diagnostics
 - log access checks with graceful fallback when direct `debug.log` access is unavailable
+- request trace comparison between the most abnormal captured trace and the closest calmer baseline
 
 ### Admin UX
 

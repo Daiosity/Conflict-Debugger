@@ -12,6 +12,7 @@ namespace PluginConflictDebugger;
 use PluginConflictDebugger\Admin\Assets;
 use PluginConflictDebugger\Admin\DashboardPage;
 use PluginConflictDebugger\Admin\Notices;
+use PluginConflictDebugger\Core\AssetLifecycleTracer;
 use PluginConflictDebugger\Core\ConflictDetector;
 use PluginConflictDebugger\Core\DiagnosticSessionRepository;
 use PluginConflictDebugger\Core\Environment;
@@ -19,6 +20,7 @@ use PluginConflictDebugger\Core\ErrorCollector;
 use PluginConflictDebugger\Core\Heuristics;
 use PluginConflictDebugger\Core\RegistrySnapshot;
 use PluginConflictDebugger\Core\ResultsRepository;
+use PluginConflictDebugger\Core\TraceAnalyzer;
 use PluginConflictDebugger\Core\RuntimeTelemetry;
 use PluginConflictDebugger\Core\RuntimeTelemetryRepository;
 use PluginConflictDebugger\Core\RuntimeMutationTracker;
@@ -51,15 +53,17 @@ final class Plugin {
 		$logger       = new Logger();
 		$tracker      = new PluginChangeTracker();
 		$environment  = new Environment();
+		$traces       = new TraceAnalyzer();
 		$collector    = new ErrorCollector( $logger, $telemetry, $sessions );
 		$heuristics   = new Heuristics();
 		$detector     = new ConflictDetector( $heuristics, $registry );
-		$scanner      = new Scanner( $environment, $collector, $detector, $repository, $tracker );
+		$scanner      = new Scanner( $environment, $collector, $detector, $repository, $tracker, $traces );
 		$runtime      = new RuntimeTelemetry( $telemetry, $registry, $sessions );
+		$asset_tracer = new AssetLifecycleTracer( $telemetry, $registry, $sessions );
 		$mutations    = new RuntimeMutationTracker( $telemetry, $registry );
 
 		$assets       = new Assets();
-		$dashboard    = new DashboardPage( $scanner, $repository, $scan_state, $sessions, $capabilities );
+		$dashboard    = new DashboardPage( $scanner, $repository, $scan_state, $sessions, $capabilities, $traces );
 		$notices      = new Notices( $repository, $capabilities );
 		$pro_features = new ProPlaceholder();
 
@@ -70,6 +74,7 @@ final class Plugin {
 		$tracker->register();
 		$registry->register();
 		$runtime->register();
+		$asset_tracer->register();
 		$mutations->register();
 	}
 

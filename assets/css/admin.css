@@ -438,6 +438,40 @@
 	margin-bottom: 18px;
 }
 
+.pcd-trace-compare-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+	gap: 18px;
+	margin-bottom: 18px;
+}
+
+.pcd-trace-compare-card,
+.pcd-trace-list-item {
+	padding: 16px;
+	border: 1px solid #dcdcde;
+	border-radius: 10px;
+	background: #fff;
+}
+
+.pcd-trace-compare-card-primary {
+	background: #fff8f1;
+}
+
+.pcd-trace-compare-card h3,
+.pcd-trace-list-item h4 {
+	margin-top: 0;
+	margin-bottom: 8px;
+}
+
+.pcd-trace-list {
+	display: grid;
+	gap: 12px;
+}
+
+.pcd-trace-diff-group + .pcd-trace-diff-group {
+	margin-top: 14px;
+}
+
 .pcd-runtime-events-list {
 	display: grid;
 	gap: 14px;

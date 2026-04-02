@@ -53,6 +53,13 @@ final class Scanner {
 	private PluginChangeTracker $change_tracker;
 
 	/**
+	 * Request trace analyzer.
+	 *
+	 * @var TraceAnalyzer
+	 */
+	private TraceAnalyzer $trace_analyzer;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Environment       $environment Environment service.
@@ -60,12 +67,13 @@ final class Scanner {
 	 * @param ConflictDetector  $detector Conflict detector.
 	 * @param ResultsRepository $repository Results repository.
 	 */
-	public function __construct( Environment $environment, ErrorCollector $error_collector, ConflictDetector $detector, ResultsRepository $repository, PluginChangeTracker $change_tracker ) {
+	public function __construct( Environment $environment, ErrorCollector $error_collector, ConflictDetector $detector, ResultsRepository $repository, PluginChangeTracker $change_tracker, TraceAnalyzer $trace_analyzer ) {
 		$this->environment     = $environment;
 		$this->error_collector = $error_collector;
 		$this->detector        = $detector;
 		$this->repository      = $repository;
 		$this->change_tracker  = $change_tracker;
+		$this->trace_analyzer  = $trace_analyzer;
 	}
 
 	/**
@@ -94,6 +102,18 @@ final class Scanner {
 		$findings      = $this->detector->detect( $plugins, $error_signals, $environment );
 		$this->notify_progress( $progress_callback, __( 'Saving scan results...', 'plugin-conflict-debugger' ), 90 );
 		$summary       = $this->build_summary( $plugins, $error_signals, $findings );
+		$focus_session = array();
+		if ( is_array( $error_signals['diagnostic_session']['active'] ?? null ) && ! empty( $error_signals['diagnostic_session']['active']['id'] ) ) {
+			$focus_session = $error_signals['diagnostic_session']['active'];
+		} elseif ( is_array( $error_signals['diagnostic_session']['last'] ?? null ) ) {
+			$focus_session = $error_signals['diagnostic_session']['last'];
+		}
+
+		$trace_snapshot = $this->trace_analyzer->build_snapshot(
+			is_array( $error_signals['request_contexts'] ?? null ) ? $error_signals['request_contexts'] : array(),
+			is_array( $error_signals['runtime_events'] ?? null ) ? $error_signals['runtime_events'] : array(),
+			is_array( $focus_session ) ? $focus_session : array()
+		);
 		$results       = array(
 			'scan_timestamp' => current_time( 'mysql' ),
 			'environment'    => $environment,
@@ -109,6 +129,7 @@ final class Scanner {
 			),
 			'recent_changes' => $this->change_tracker->get_changes(),
 			'findings'       => $findings,
+			'trace_snapshot' => $trace_snapshot,
 			'summary'        => $summary,
 			'severity_counts'=> $this->build_severity_counts( $findings ),
 			'site_status'    => $this->derive_site_status( $findings ),

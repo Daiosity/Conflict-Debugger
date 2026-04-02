@@ -104,18 +104,42 @@ final class RuntimeTelemetry {
 	public function handle_runtime_event(): void {
 		check_ajax_referer( 'pcd_runtime_event', 'nonce' );
 
+		$posted_context = sanitize_text_field( (string) ( $_POST['request_context'] ?? '' ) );
+		$server_context = $this->build_request_context();
+		$request_scope  = sanitize_text_field( (string) ( $_POST['request_scope'] ?? $server_context['request_scope'] ?? '' ) );
+		$scope_type     = sanitize_key( (string) ( $_POST['scope_type'] ?? $server_context['scope_type'] ?? '' ) );
+		$request_id     = sanitize_text_field( (string) ( $_POST['request_id'] ?? '' ) );
+		if ( '' === $request_id ) {
+			$request_id = sanitize_text_field( (string) ( $server_context['request_id'] ?? TraceEvent::current_request_id() ) );
+		}
+
 		$event = array(
-			'timestamp'       => current_time( 'mysql' ),
-			'type'            => sanitize_key( (string) ( $_POST['type'] ?? 'client' ) ),
-			'level'           => sanitize_key( (string) ( $_POST['level'] ?? 'error' ) ),
-			'message'         => sanitize_textarea_field( (string) ( $_POST['message'] ?? '' ) ),
-			'request_context' => sanitize_text_field( (string) ( $_POST['request_context'] ?? '' ) ),
-			'request_uri'     => sanitize_text_field( (string) ( $_POST['request_uri'] ?? '' ) ),
-			'source'          => sanitize_text_field( (string) ( $_POST['source'] ?? '' ) ),
-			'resource'        => sanitize_text_field( (string) ( $_POST['resource'] ?? '' ) ),
-			'status_code'     => absint( $_POST['status_code'] ?? 0 ),
-			'session_id'      => sanitize_text_field( (string) ( $_POST['session_id'] ?? '' ) ),
-			'resource_hints'  => $this->normalize_resource_hints( wp_unslash( $_POST['resource_hints'] ?? '' ) ),
+			'event_id'             => TraceEvent::new_event_id(),
+			'request_id'           => $request_id,
+			'sequence'             => 0,
+			'timestamp'            => current_time( 'mysql' ),
+			'type'                 => sanitize_key( (string) ( $_POST['type'] ?? 'client' ) ),
+			'evidence_source'      => TraceEvent::SOURCE_CLIENT,
+			'level'                => sanitize_key( (string) ( $_POST['level'] ?? 'error' ) ),
+			'message'              => sanitize_textarea_field( (string) ( $_POST['message'] ?? '' ) ),
+			'request_context'      => '' !== $posted_context ? $posted_context : sanitize_text_field( (string) ( $server_context['request_context'] ?? '' ) ),
+			'request_uri'          => sanitize_text_field( (string) ( $_POST['request_uri'] ?? $server_context['request_uri'] ?? '' ) ),
+			'request_scope'        => $request_scope,
+			'scope_type'           => $scope_type,
+			'source'               => sanitize_text_field( (string) ( $_POST['source'] ?? '' ) ),
+			'resource'             => sanitize_text_field( (string) ( $_POST['resource'] ?? '' ) ),
+			'resource_type'        => sanitize_key( (string) ( $_POST['resource_type'] ?? '' ) ),
+			'resource_key'         => sanitize_text_field( (string) ( $_POST['resource_key'] ?? '' ) ),
+			'execution_surface'    => sanitize_text_field( (string) ( $_POST['execution_surface'] ?? '' ) ),
+			'hook'                 => sanitize_text_field( (string) ( $_POST['hook'] ?? '' ) ),
+			'callback'             => sanitize_text_field( (string) ( $_POST['callback'] ?? '' ) ),
+			'priority'             => absint( $_POST['priority'] ?? 0 ),
+			'status_code'          => absint( $_POST['status_code'] ?? 0 ),
+			'session_id'           => sanitize_text_field( (string) ( $_POST['session_id'] ?? '' ) ),
+			'resource_hints'       => $this->normalize_resource_hints( wp_unslash( $_POST['resource_hints'] ?? '' ) ),
+			'attribution_status'   => sanitize_key( (string) ( $_POST['attribution_status'] ?? TraceEvent::ATTRIBUTION_UNKNOWN ) ),
+			'contamination_status' => sanitize_key( (string) ( $_POST['contamination_status'] ?? TraceEvent::CONTAMINATION_NONE ) ),
+			'mutation_status'      => sanitize_key( (string) ( $_POST['mutation_status'] ?? TraceEvent::MUTATION_NONE ) ),
 		);
 
 		$active_session = $this->resolve_active_session_for_context( (string) $event['request_context'] );
@@ -155,39 +179,56 @@ final class RuntimeTelemetry {
 		if ( is_array( $last_error ) && $this->is_fatal_error( (int) ( $last_error['type'] ?? 0 ) ) ) {
 			$this->repository->record_event(
 				array(
-					'timestamp'       => current_time( 'mysql' ),
-					'type'            => 'php_runtime',
-					'level'           => 'fatal',
-					'message'         => (string) ( $last_error['message'] ?? '' ),
-					'request_context' => (string) ( $context['request_context'] ?? '' ),
-					'request_uri'     => (string) ( $context['request_uri'] ?? '' ),
-					'source'          => sanitize_text_field( (string) ( $last_error['file'] ?? '' ) ),
-					'resource'        => sanitize_text_field( basename( (string) ( $last_error['file'] ?? '' ) ) ),
-					'status_code'     => 500,
-					'session_id'      => (string) ( $context['session_id'] ?? '' ),
+					'event_id'             => TraceEvent::new_event_id(),
+					'request_id'           => (string) ( $context['request_id'] ?? TraceEvent::current_request_id() ),
+					'sequence'             => TraceEvent::next_sequence(),
+					'timestamp'            => current_time( 'mysql' ),
+					'type'                 => 'php_runtime',
+					'evidence_source'      => TraceEvent::SOURCE_RUNTIME,
+					'level'                => 'fatal',
+					'message'              => (string) ( $last_error['message'] ?? '' ),
+					'request_context'      => (string) ( $context['request_context'] ?? '' ),
+					'request_uri'          => (string) ( $context['request_uri'] ?? '' ),
+					'request_scope'        => (string) ( $context['request_scope'] ?? '' ),
+					'scope_type'           => (string) ( $context['scope_type'] ?? '' ),
+					'source'               => sanitize_text_field( (string) ( $last_error['file'] ?? '' ) ),
+					'resource'             => sanitize_text_field( basename( (string) ( $last_error['file'] ?? '' ) ) ),
+					'resource_type'        => 'php_file',
+					'resource_key'         => sanitize_text_field( basename( (string) ( $last_error['file'] ?? '' ) ) ),
+					'status_code'          => 500,
+					'session_id'           => (string) ( $context['session_id'] ?? '' ),
+					'resource_hints'       => is_array( $context['resource_hints'] ?? null ) ? $context['resource_hints'] : array(),
 				)
-			)
+			);
 		}
 
 		$status_code = http_response_code();
 		if ( is_int( $status_code ) && $status_code >= 400 ) {
 			$this->repository->record_event(
 				array(
-					'timestamp'       => current_time( 'mysql' ),
-					'type'            => 'http_response',
-					'level'           => $status_code >= 500 ? 'server-error' : 'client-error',
-					'message'         => sprintf(
+					'event_id'             => TraceEvent::new_event_id(),
+					'request_id'           => (string) ( $context['request_id'] ?? TraceEvent::current_request_id() ),
+					'sequence'             => TraceEvent::next_sequence(),
+					'timestamp'            => current_time( 'mysql' ),
+					'type'                 => 'http_response',
+					'evidence_source'      => TraceEvent::SOURCE_RUNTIME,
+					'level'                => $status_code >= 500 ? 'server-error' : 'client-error',
+					'message'              => sprintf(
 						/* translators: %d status code. */
 						__( 'Observed HTTP response %d during request execution.', 'plugin-conflict-debugger' ),
 						$status_code
 					),
-					'request_context' => (string) ( $context['request_context'] ?? '' ),
-					'request_uri'     => (string) ( $context['request_uri'] ?? '' ),
-					'resource'        => (string) ( $context['resource'] ?? '' ),
-					'status_code'     => $status_code,
-					'session_id'      => (string) ( $context['session_id'] ?? '' ),
+					'request_context'      => (string) ( $context['request_context'] ?? '' ),
+					'request_uri'          => (string) ( $context['request_uri'] ?? '' ),
+					'request_scope'        => (string) ( $context['request_scope'] ?? '' ),
+					'scope_type'           => (string) ( $context['scope_type'] ?? '' ),
+					'resource'             => (string) ( $context['resource'] ?? '' ),
+					'resource_key'         => (string) ( $context['resource'] ?? '' ),
+					'status_code'          => $status_code,
+					'session_id'           => (string) ( $context['session_id'] ?? '' ),
+					'resource_hints'       => is_array( $context['resource_hints'] ?? null ) ? $context['resource_hints'] : array(),
 				)
-			)
+			);
 		}
 	}
 
@@ -198,6 +239,8 @@ final class RuntimeTelemetry {
 	 * @return void
 	 */
 	private function enqueue_runtime_script( string $default_context ): void {
+		$request_scope = $this->current_request_scope();
+
 		wp_enqueue_script(
 			'pcd-runtime-telemetry',
 			PCD_URL . 'assets/js/runtime-telemetry.js',
@@ -212,8 +255,11 @@ final class RuntimeTelemetry {
 			array(
 				'ajaxUrl'        => admin_url( 'admin-ajax.php' ),
 				'nonce'          => wp_create_nonce( 'pcd_runtime_event' ),
+				'requestId'      => TraceEvent::current_request_id(),
 				'requestContext' => $default_context,
 				'requestUri'     => $this->current_request_uri(),
+				'requestScope'   => $request_scope['scope'],
+				'scopeType'      => $request_scope['type'],
 				'resourceHints'  => $this->detect_resource_hints(),
 				'activeSession'  => $this->session_payload_for_client( $default_context ),
 				'restPrefix'     => trailingslashit( rest_get_url_prefix() ),
@@ -228,10 +274,15 @@ final class RuntimeTelemetry {
 	 * @return array<string, mixed>
 	 */
 	private function build_request_context(): array {
+		$request_scope = $this->current_request_scope();
+
 		$context = array(
+			'request_id'      => TraceEvent::current_request_id(),
 			'timestamp'       => current_time( 'mysql' ),
 			'request_context' => $this->detect_request_context(),
 			'request_uri'     => $this->current_request_uri(),
+			'request_scope'   => $request_scope['scope'],
+			'scope_type'      => $request_scope['type'],
 			'screen_id'       => '',
 			'ajax_action'     => '',
 			'rest_route'      => '',
@@ -264,6 +315,48 @@ final class RuntimeTelemetry {
 		}
 
 		return $context;
+	}
+
+	/**
+	 * Returns the most specific request scope available.
+	 *
+	 * @return array{scope:string,type:string}
+	 */
+	private function current_request_scope(): array {
+		if ( wp_doing_ajax() ) {
+			$action = sanitize_key( (string) ( $_REQUEST['action'] ?? '' ) );
+			if ( '' !== $action ) {
+				return array(
+					'scope' => 'ajax:' . $action,
+					'type'  => 'ajax',
+				);
+			}
+		}
+
+		if ( $this->is_rest_request() ) {
+			$route = $this->detect_rest_route();
+			if ( '' !== $route ) {
+				return array(
+					'scope' => 'rest:' . $route,
+					'type'  => 'rest',
+				);
+			}
+		}
+
+		if ( is_admin() && function_exists( 'get_current_screen' ) ) {
+			$screen = get_current_screen();
+			if ( $screen && ! empty( $screen->id ) ) {
+				return array(
+					'scope' => 'screen:' . sanitize_key( (string) $screen->id ),
+					'type'  => 'screen',
+				);
+			}
+		}
+
+		return array(
+			'scope' => $this->comparable_path( $this->current_request_uri() ),
+			'type'  => 'path',
+		);
 	}
 
 	/**
@@ -352,6 +445,22 @@ final class RuntimeTelemetry {
 		}
 
 		return sanitize_text_field( substr( $request_uri, $position + strlen( $prefix ) - 1 ) );
+	}
+
+	/**
+	 * Returns a normalized comparable path.
+	 *
+	 * @param string $request_uri Request URI.
+	 * @return string
+	 */
+	private function comparable_path( string $request_uri ): string {
+		$path = wp_parse_url( $request_uri, PHP_URL_PATH );
+		if ( ! is_string( $path ) ) {
+			$path = $request_uri;
+		}
+
+		$path = '/' . ltrim( trim( $path ), '/' );
+		return '/' === $path ? $path : untrailingslashit( $path );
 	}
 
 	/**

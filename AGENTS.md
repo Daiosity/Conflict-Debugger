@@ -179,3 +179,4 @@ When shipping changes:
 2. Prefer exact ownership and mutation capture
 3. Prefer observed breakage over inferred suspicion
 4. Keep the detector trustworthy even if it becomes more conservative
+

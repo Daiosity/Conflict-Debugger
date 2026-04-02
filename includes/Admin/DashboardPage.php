@@ -13,6 +13,7 @@ use PluginConflictDebugger\Core\DiagnosticSessionRepository;
 use PluginConflictDebugger\Core\ResultsRepository;
 use PluginConflictDebugger\Core\ScanStateRepository;
 use PluginConflictDebugger\Core\Scanner;
+use PluginConflictDebugger\Core\TraceAnalyzer;
 use PluginConflictDebugger\Support\Capabilities;
 use PluginConflictDebugger\Support\Helpers;
 use Throwable;
@@ -26,6 +27,16 @@ final class DashboardPage {
 	 * Async worker hook.
 	 */
 	private const ASYNC_SCAN_HOOK = 'pcd_run_scan_async';
+
+	/**
+	 * Delay before trying loopback dispatch for a queued scan.
+	 */
+	private const QUEUE_DISPATCH_DELAY = 6;
+
+	/**
+	 * Delay before forcing the worker to run inside the polling request.
+	 */
+	private const INLINE_FALLBACK_DELAY = 18;
 
 	/**
 	 * Scanner service.
@@ -56,6 +67,13 @@ final class DashboardPage {
 	private DiagnosticSessionRepository $sessions;
 
 	/**
+	 * Trace analyzer.
+	 *
+	 * @var TraceAnalyzer
+	 */
+	private TraceAnalyzer $trace_analyzer;
+
+	/**
 	 * Capability service.
 	 *
 	 * @var Capabilities
@@ -71,12 +89,13 @@ final class DashboardPage {
 	 * @param DiagnosticSessionRepository $sessions Diagnostic session repository.
 	 * @param Capabilities        $capabilities Capability service.
 	 */
-	public function __construct( Scanner $scanner, ResultsRepository $repository, ScanStateRepository $scan_state, DiagnosticSessionRepository $sessions, Capabilities $capabilities ) {
+	public function __construct( Scanner $scanner, ResultsRepository $repository, ScanStateRepository $scan_state, DiagnosticSessionRepository $sessions, Capabilities $capabilities, TraceAnalyzer $trace_analyzer ) {
 		$this->scanner      = $scanner;
 		$this->repository   = $repository;
 		$this->scan_state   = $scan_state;
 		$this->sessions     = $sessions;
 		$this->capabilities = $capabilities;
+		$this->trace_analyzer = $trace_analyzer;
 	}
 
 	/**
@@ -89,6 +108,8 @@ final class DashboardPage {
 		add_action( 'admin_post_pcd_run_scan', array( $this, 'handle_scan' ) );
 		add_action( 'wp_ajax_pcd_start_scan', array( $this, 'ajax_start_scan' ) );
 		add_action( 'wp_ajax_pcd_get_scan_status', array( $this, 'ajax_get_scan_status' ) );
+		add_action( 'wp_ajax_pcd_run_scan_worker', array( $this, 'ajax_run_scan_worker' ) );
+		add_action( 'wp_ajax_nopriv_pcd_run_scan_worker', array( $this, 'ajax_run_scan_worker' ) );
 		add_action( 'wp_ajax_pcd_start_diagnostic_session', array( $this, 'ajax_start_diagnostic_session' ) );
 		add_action( 'wp_ajax_pcd_end_diagnostic_session', array( $this, 'ajax_end_diagnostic_session' ) );
 		add_action( self::ASYNC_SCAN_HOOK, array( $this, 'run_background_scan' ), 10, 1 );
@@ -165,6 +186,35 @@ final class DashboardPage {
 		}
 
 		check_ajax_referer( 'pcd_scan_ajax', 'nonce' );
+		$state = $this->scan_state->get();
+
+		if ( 'queued' === (string) ( $state['status'] ?? 'idle' ) ) {
+			$this->recover_queued_scan( $state );
+			$state = $this->scan_state->get();
+		}
+
+		wp_send_json_success( $state );
+	}
+
+	/**
+	 * Loopback worker endpoint for hosts where WP-Cron never starts the job.
+	 *
+	 * @return void
+	 */
+	public function ajax_run_scan_worker(): void {
+		$token      = sanitize_text_field( (string) ( $_REQUEST['token'] ?? '' ) );
+		$worker_key = sanitize_text_field( (string) ( $_REQUEST['worker_key'] ?? '' ) );
+		$state      = $this->scan_state->get();
+
+		if ( '' === $token || '' === $worker_key ) {
+			wp_send_json_error( array( 'message' => __( 'Missing worker credentials.', 'plugin-conflict-debugger' ) ), 400 );
+		}
+
+		if ( $token !== (string) ( $state['token'] ?? '' ) || $worker_key !== (string) ( $state['worker_key'] ?? '' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Worker credentials did not match the queued scan.', 'plugin-conflict-debugger' ) ), 403 );
+		}
+
+		$this->run_background_scan( $token );
 		wp_send_json_success( $this->scan_state->get() );
 	}
 
@@ -264,8 +314,9 @@ final class DashboardPage {
 			return $state;
 		}
 
-		$token = wp_generate_uuid4();
-		$state = $this->scan_state->mark_queued( $token );
+		$token      = wp_generate_uuid4();
+		$worker_key = wp_generate_password( 20, false, false );
+		$state      = $this->scan_state->mark_queued( $token, $worker_key );
 
 		if ( ! wp_next_scheduled( self::ASYNC_SCAN_HOOK, array( $token ) ) ) {
 			wp_schedule_single_event( time() + 1, self::ASYNC_SCAN_HOOK, array( $token ) );
@@ -275,7 +326,75 @@ final class DashboardPage {
 			spawn_cron();
 		}
 
+		$this->dispatch_async_worker( $state );
+
 		return $state;
+	}
+
+	/**
+	 * Attempts to recover a scan that has been queued for too long.
+	 *
+	 * @param array<string, mixed> $state Current scan state.
+	 * @return void
+	 */
+	private function recover_queued_scan( array $state ): void {
+		$queued_for = $this->seconds_since( (string) ( $state['started_at'] ?? '' ) );
+		if ( $queued_for < self::QUEUE_DISPATCH_DELAY ) {
+			return;
+		}
+
+		$this->dispatch_async_worker( $state );
+
+		if ( $queued_for >= self::INLINE_FALLBACK_DELAY ) {
+			$token = sanitize_text_field( (string) ( $state['token'] ?? '' ) );
+			if ( '' !== $token ) {
+				$this->run_background_scan( $token );
+			}
+		}
+	}
+
+	/**
+	 * Dispatches a non-blocking loopback worker request.
+	 *
+	 * @param array<string, mixed> $state Scan state.
+	 * @return void
+	 */
+	private function dispatch_async_worker( array $state ): void {
+		$token      = sanitize_text_field( (string) ( $state['token'] ?? '' ) );
+		$worker_key = sanitize_text_field( (string) ( $state['worker_key'] ?? '' ) );
+
+		if ( '' === $token || '' === $worker_key ) {
+			return;
+		}
+
+		wp_remote_post(
+			admin_url( 'admin-ajax.php' ),
+			array(
+				'blocking'  => false,
+				'timeout'   => 0.01,
+				'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
+				'body'      => array(
+					'action'     => 'pcd_run_scan_worker',
+					'token'      => $token,
+					'worker_key' => $worker_key,
+				),
+			)
+		);
+	}
+
+	/**
+	 * Returns seconds elapsed since a timestamp.
+	 *
+	 * @param string $timestamp Timestamp string.
+	 * @return int
+	 */
+	private function seconds_since( string $timestamp ): int {
+		$time = strtotime( $timestamp );
+		if ( false === $time ) {
+			return 0;
+		}
+
+		return max( 0, time() - $time );
 	}
 
 	/**
@@ -312,6 +431,13 @@ final class DashboardPage {
 			'finding_event_map' => array(),
 			'focus_label'     => '',
 		);
+		$trace_snapshot    = $has_results && is_array( $results['trace_snapshot'] ?? null )
+			? $results['trace_snapshot']
+			: $this->trace_analyzer->build_snapshot(
+				$has_results && is_array( $results['request_contexts'] ?? null ) ? $results['request_contexts'] : array(),
+				$has_results && is_array( $results['runtime_events'] ?? null ) ? $results['runtime_events'] : array(),
+				! empty( $active_session['id'] ) ? $active_session : $last_session
+			);
 		$finding_event_map = is_array( $runtime_event_view['finding_event_map'] ?? null ) ? $runtime_event_view['finding_event_map'] : array();
 		$is_scan_active    = in_array( (string) ( $scan_state['status'] ?? 'idle' ), array( 'queued', 'running' ), true );
 		$scan_status_text  = (string) ( $scan_state['message'] ?? __( 'No scan is running.', 'plugin-conflict-debugger' ) );
@@ -454,10 +580,30 @@ final class DashboardPage {
 												<?php if ( ! empty( $finding['title'] ) ) : ?>
 													<div class="pcd-finding-title"><?php echo esc_html( (string) $finding['title'] ); ?></div>
 												<?php endif; ?>
-												<?php if ( ! empty( $finding['finding_type'] ) ) : ?>
-													<div class="pcd-finding-type"><?php echo esc_html( sprintf( __( 'Type: %s', 'plugin-conflict-debugger' ), str_replace( '_', ' ', (string) $finding['finding_type'] ) ) ); ?></div>
+												<?php if ( ! empty( $finding['category'] ) || ! empty( $finding['finding_type'] ) ) : ?>
+													<div class="pcd-finding-type"><?php echo esc_html( sprintf( __( 'Category: %s', 'plugin-conflict-debugger' ), ucwords( str_replace( '_', ' ', (string) ( $finding['category'] ?? $finding['finding_type'] ?? '' ) ) ) ) ); ?></div>
 												<?php endif; ?>
 												<div class="pcd-explanation"><?php echo esc_html( (string) ( $finding['explanation'] ?? '' ) ); ?></div>
+												<?php if ( ! empty( $finding['evidence_strength_breakdown'] ) && is_array( $finding['evidence_strength_breakdown'] ) ) : ?>
+													<div class="pcd-actionability-note">
+														<?php
+														$breakdown = (array) $finding['evidence_strength_breakdown'];
+														echo esc_html(
+															sprintf(
+																/* translators: 1: strong proof count, 2: supporting count, 3: noise count, 4: runtime breakage count. */
+																__( 'Evidence breakdown: Strong proof %1$d, Supporting indicators %2$d, Noise %3$d, Runtime breakage %4$d.', 'plugin-conflict-debugger' ),
+																(int) ( $breakdown['strong_proof'] ?? 0 ),
+																(int) ( $breakdown['supporting'] ?? 0 ),
+																(int) ( $breakdown['noise'] ?? 0 ),
+																(int) ( $breakdown['runtime_breakage'] ?? 0 )
+															)
+														);
+														?>
+													</div>
+												<?php endif; ?>
+												<?php if ( ! empty( $finding['why_scored_this_way'] ) ) : ?>
+													<div class="pcd-actionability-note"><?php echo esc_html( (string) $finding['why_scored_this_way'] ); ?></div>
+												<?php endif; ?>
 												<?php if ( ! empty( $finding['why_this_is_not_or_is_actionable'] ) ) : ?>
 													<div class="pcd-actionability-note"><?php echo esc_html( (string) $finding['why_this_is_not_or_is_actionable'] ); ?></div>
 												<?php endif; ?>
@@ -747,6 +893,124 @@ final class DashboardPage {
 						<?php endif; ?>
 
 						<section class="pcd-panel pcd-panel-span-2">
+							<h2><?php esc_html_e( 'Compare Diagnostic Traces', 'plugin-conflict-debugger' ); ?></h2>
+							<?php if ( ! empty( $trace_snapshot['comparison']['has_comparison'] ) ) : ?>
+								<?php
+								$trace_comparison = is_array( $trace_snapshot['comparison'] ?? null ) ? $trace_snapshot['comparison'] : array();
+								$primary_trace    = is_array( $trace_comparison['primary'] ?? null ) ? $trace_comparison['primary'] : array();
+								$secondary_trace  = is_array( $trace_comparison['secondary'] ?? null ) ? $trace_comparison['secondary'] : array();
+								$primary_only     = is_array( $trace_comparison['only_in_primary'] ?? null ) ? $trace_comparison['only_in_primary'] : array();
+								$secondary_only   = is_array( $trace_comparison['only_in_secondary'] ?? null ) ? $trace_comparison['only_in_secondary'] : array();
+								$metric_delta     = is_array( $trace_comparison['metric_delta'] ?? null ) ? $trace_comparison['metric_delta'] : array();
+								?>
+								<?php if ( ! empty( $trace_snapshot['focus_label'] ) ) : ?>
+									<p class="pcd-summary-note">
+										<?php
+										echo esc_html(
+											sprintf(
+												/* translators: %s session label. */
+												__( 'Focused on traces captured in the diagnostic session: %s', 'plugin-conflict-debugger' ),
+												(string) $trace_snapshot['focus_label']
+											)
+										);
+										?>
+									</p>
+								<?php endif; ?>
+								<p class="pcd-actionability-note"><?php echo esc_html( (string) ( $trace_comparison['explanation'] ?? '' ) ); ?></p>
+								<div class="pcd-trace-compare-grid">
+									<article class="pcd-trace-compare-card pcd-trace-compare-card-primary">
+										<div class="pcd-runtime-event-topline">
+											<div class="pcd-runtime-event-badges">
+												<span class="pcd-status-badge pcd-status-<?php echo esc_attr( (string) ( $primary_trace['health'] ?? 'warning' ) ); ?>">
+													<?php esc_html_e( 'Affected Trace', 'plugin-conflict-debugger' ); ?>
+												</span>
+												<?php if ( ! empty( $primary_trace['request_context'] ) ) : ?>
+													<span class="pcd-status-badge pcd-status-info"><?php echo esc_html( (string) $primary_trace['request_context'] ); ?></span>
+												<?php endif; ?>
+											</div>
+											<?php if ( ! empty( $primary_trace['last_seen'] ) ) : ?>
+												<span class="pcd-request-context-time"><?php echo esc_html( Helpers::format_datetime( (string) $primary_trace['last_seen'] ) ); ?></span>
+											<?php endif; ?>
+										</div>
+										<h3><?php echo esc_html( (string) ( $primary_trace['label'] ?? __( 'Affected trace', 'plugin-conflict-debugger' ) ) ); ?></h3>
+										<p><?php echo esc_html( (string) ( $primary_trace['summary'] ?? '' ) ); ?></p>
+										<?php if ( ! empty( $primary_trace['request_uri'] ) ) : ?>
+											<code class="pcd-request-context-uri"><?php echo esc_html( (string) $primary_trace['request_uri'] ); ?></code>
+										<?php endif; ?>
+									</article>
+									<article class="pcd-trace-compare-card">
+										<div class="pcd-runtime-event-topline">
+											<div class="pcd-runtime-event-badges">
+												<span class="pcd-status-badge pcd-status-<?php echo esc_attr( (string) ( $secondary_trace['health'] ?? 'info' ) ); ?>">
+													<?php esc_html_e( 'Comparison Trace', 'plugin-conflict-debugger' ); ?>
+												</span>
+												<?php if ( ! empty( $secondary_trace['request_context'] ) ) : ?>
+													<span class="pcd-status-badge pcd-status-info"><?php echo esc_html( (string) $secondary_trace['request_context'] ); ?></span>
+												<?php endif; ?>
+											</div>
+											<?php if ( ! empty( $secondary_trace['last_seen'] ) ) : ?>
+												<span class="pcd-request-context-time"><?php echo esc_html( Helpers::format_datetime( (string) $secondary_trace['last_seen'] ) ); ?></span>
+											<?php endif; ?>
+										</div>
+										<h3><?php echo esc_html( (string) ( $secondary_trace['label'] ?? __( 'Comparison trace', 'plugin-conflict-debugger' ) ) ); ?></h3>
+										<p><?php echo esc_html( (string) ( $secondary_trace['summary'] ?? '' ) ); ?></p>
+										<?php if ( ! empty( $secondary_trace['request_uri'] ) ) : ?>
+											<code class="pcd-request-context-uri"><?php echo esc_html( (string) $secondary_trace['request_uri'] ); ?></code>
+										<?php endif; ?>
+									</article>
+								</div>
+								<div class="pcd-runtime-summary-grid">
+									<div class="pcd-drilldown-stat">
+										<span class="pcd-summary-label"><?php esc_html_e( 'Request Delta', 'plugin-conflict-debugger' ); ?></span>
+										<strong class="pcd-summary-value-small"><?php echo esc_html( $this->format_trace_delta( (int) ( $metric_delta['requests'] ?? 0 ) ) ); ?></strong>
+									</div>
+									<div class="pcd-drilldown-stat">
+										<span class="pcd-summary-label"><?php esc_html_e( 'Event Delta', 'plugin-conflict-debugger' ); ?></span>
+										<strong class="pcd-summary-value-small"><?php echo esc_html( $this->format_trace_delta( (int) ( $metric_delta['events'] ?? 0 ) ) ); ?></strong>
+									</div>
+									<div class="pcd-drilldown-stat">
+										<span class="pcd-summary-label"><?php esc_html_e( 'Failure Delta', 'plugin-conflict-debugger' ); ?></span>
+										<strong class="pcd-summary-value-small"><?php echo esc_html( $this->format_trace_delta( (int) ( $metric_delta['failures'] ?? 0 ) ) ); ?></strong>
+									</div>
+									<div class="pcd-drilldown-stat">
+										<span class="pcd-summary-label"><?php esc_html_e( 'Mutation Delta', 'plugin-conflict-debugger' ); ?></span>
+										<strong class="pcd-summary-value-small"><?php echo esc_html( $this->format_trace_delta( (int) ( $metric_delta['mutations'] ?? 0 ) ) ); ?></strong>
+									</div>
+								</div>
+								<div class="pcd-compare-lists">
+									<div>
+										<h4><?php esc_html_e( 'Only In Affected Trace', 'plugin-conflict-debugger' ); ?></h4>
+										<?php $this->render_trace_diff_lists( $primary_only ); ?>
+									</div>
+									<div>
+										<h4><?php esc_html_e( 'Only In Comparison Trace', 'plugin-conflict-debugger' ); ?></h4>
+										<?php $this->render_trace_diff_lists( $secondary_only ); ?>
+									</div>
+								</div>
+							<?php elseif ( ! empty( $trace_snapshot['traces'] ) ) : ?>
+								<p class="pcd-actionability-note"><?php esc_html_e( 'At least two related traces are needed before a request comparison can be shown. Reproduce the issue again in the same diagnostic session to capture a stronger before-and-after baseline.', 'plugin-conflict-debugger' ); ?></p>
+								<div class="pcd-trace-list">
+									<?php foreach ( array_slice( (array) $trace_snapshot['traces'], 0, 4 ) as $trace_item ) : ?>
+										<article class="pcd-trace-list-item">
+											<div class="pcd-plugin-finding-topline">
+												<span class="pcd-status-badge pcd-status-<?php echo esc_attr( (string) ( $trace_item['health'] ?? 'info' ) ); ?>">
+													<?php echo esc_html( ucfirst( (string) ( $trace_item['health'] ?? __( 'Info', 'plugin-conflict-debugger' ) ) ) ); ?>
+												</span>
+												<?php if ( ! empty( $trace_item['request_context'] ) ) : ?>
+													<span class="pcd-status-badge pcd-status-info"><?php echo esc_html( (string) $trace_item['request_context'] ); ?></span>
+												<?php endif; ?>
+											</div>
+											<h4><?php echo esc_html( (string) ( $trace_item['label'] ?? __( 'Captured trace', 'plugin-conflict-debugger' ) ) ); ?></h4>
+											<p><?php echo esc_html( (string) ( $trace_item['summary'] ?? '' ) ); ?></p>
+										</article>
+									<?php endforeach; ?>
+								</div>
+							<?php else : ?>
+								<p><?php esc_html_e( 'No comparable request traces were captured yet. Start a diagnostic session, reproduce the issue path, and run another scan to build a trace comparison.', 'plugin-conflict-debugger' ); ?></p>
+							<?php endif; ?>
+						</section>
+
+						<section class="pcd-panel pcd-panel-span-2">
 							<h2><?php esc_html_e( 'Recent Runtime Events', 'plugin-conflict-debugger' ); ?></h2>
 							<?php if ( ! empty( $runtime_event_view['events'] ) ) : ?>
 								<?php if ( ! empty( $runtime_event_view['focus_label'] ) ) : ?>
@@ -803,6 +1067,9 @@ final class DashboardPage {
 													<div>
 														<span class="pcd-summary-label"><?php esc_html_e( 'Request', 'plugin-conflict-debugger' ); ?></span>
 														<code class="pcd-request-context-uri"><?php echo esc_html( (string) $runtime_event['request_uri'] ); ?></code>
+														<?php if ( ! empty( $runtime_event['request_scope'] ) ) : ?>
+															<p class="pcd-summary-note"><?php echo esc_html( sprintf( __( 'Scope: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['request_scope'] ) ); ?></p>
+														<?php endif; ?>
 													</div>
 												<?php endif; ?>
 												<div>
@@ -812,6 +1079,24 @@ final class DashboardPage {
 														<?php endif; ?>
 														<?php if ( ! empty( $runtime_event['execution_surface'] ) ) : ?>
 															<li><?php echo esc_html( sprintf( __( 'Execution surface: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['execution_surface'] ) ); ?></li>
+														<?php endif; ?>
+														<?php if ( ! empty( $runtime_event['hook'] ) ) : ?>
+															<li><?php echo esc_html( sprintf( __( 'Hook: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['hook'] ) ); ?></li>
+														<?php endif; ?>
+														<?php if ( ! empty( $runtime_event['actor_label'] ) ) : ?>
+															<li><?php echo esc_html( sprintf( __( 'Mutating actor: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['actor_label'] ) ); ?></li>
+														<?php endif; ?>
+														<?php if ( ! empty( $runtime_event['target_owner_label'] ) ) : ?>
+															<li><?php echo esc_html( sprintf( __( 'Target owner: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['target_owner_label'] ) ); ?></li>
+														<?php endif; ?>
+														<?php if ( ! empty( $runtime_event['attribution_label'] ) ) : ?>
+															<li><?php echo esc_html( sprintf( __( 'Attribution: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['attribution_label'] ) ); ?></li>
+														<?php endif; ?>
+														<?php if ( ! empty( $runtime_event['mutation_label'] ) ) : ?>
+															<li><?php echo esc_html( sprintf( __( 'Mutation state: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['mutation_label'] ) ); ?></li>
+														<?php endif; ?>
+														<?php if ( ! empty( $runtime_event['evidence_source'] ) ) : ?>
+															<li><?php echo esc_html( sprintf( __( 'Evidence source: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['evidence_source'] ) ); ?></li>
 														<?php endif; ?>
 														<?php if ( ! empty( $runtime_event['failure_mode'] ) ) : ?>
 															<li><?php echo esc_html( sprintf( __( 'Failure mode: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['failure_mode'] ) ); ?></li>
@@ -827,6 +1112,16 @@ final class DashboardPage {
 											</div>
 											<?php if ( ! empty( $runtime_event['resource_hints'] ) ) : ?>
 												<p class="pcd-actionability-note"><?php echo esc_html( sprintf( __( 'Resource hints: %s', 'plugin-conflict-debugger' ), implode( ', ', (array) $runtime_event['resource_hints'] ) ) ); ?></p>
+											<?php endif; ?>
+											<?php if ( ! empty( $runtime_event['state_changes'] ) ) : ?>
+												<div class="pcd-runtime-event-links">
+													<strong><?php esc_html_e( 'State changes:', 'plugin-conflict-debugger' ); ?></strong>
+													<ul class="pcd-meta-list">
+														<?php foreach ( (array) $runtime_event['state_changes'] as $state_change ) : ?>
+															<li><?php echo esc_html( (string) $state_change ); ?></li>
+														<?php endforeach; ?>
+													</ul>
+												</div>
 											<?php endif; ?>
 											<?php if ( ! empty( $runtime_event['matched_findings'] ) ) : ?>
 												<div class="pcd-runtime-event-links">
@@ -1162,10 +1457,20 @@ final class DashboardPage {
 			$event_id          = 'pcd-runtime-event-' . ( $index + 1 );
 			$matched_findings  = array();
 			$owner_labels      = array();
+			$actor_slug        = sanitize_key( (string) ( $runtime_event['actor_slug'] ?? '' ) );
+			$target_owner_slug = sanitize_key( (string) ( $runtime_event['target_owner_slug'] ?? '' ) );
 			$event_owner_slugs = is_array( $runtime_event['owner_slugs'] ?? null ) ? array_values( array_filter( array_map( 'sanitize_key', $runtime_event['owner_slugs'] ) ) ) : array();
 
 			foreach ( $event_owner_slugs as $owner_slug ) {
 				$owner_labels[] = $this->humanize_runtime_hint( $owner_slug );
+			}
+
+			if ( '' !== $actor_slug ) {
+				$owner_labels[] = $this->humanize_runtime_hint( $actor_slug );
+			}
+
+			if ( '' !== $target_owner_slug ) {
+				$owner_labels[] = $this->humanize_runtime_hint( $target_owner_slug );
 			}
 
 			foreach ( $findings as $finding ) {
@@ -1197,15 +1502,15 @@ final class DashboardPage {
 			}
 
 			$type = sanitize_key( (string) ( $runtime_event['type'] ?? 'runtime' ) );
-			if ( in_array( $type, array( 'js_error', 'promise_rejection', 'missing_asset' ), true ) ) {
+			if ( in_array( $type, array( 'js_error', 'promise_rejection', 'js_promise', 'missing_asset', 'resource_error' ), true ) ) {
 				$summary['js_errors']++;
 			}
 
-			if ( 'http_response' === $type || ! empty( $runtime_event['status_code'] ) ) {
+			if ( in_array( $type, array( 'http_response', 'network_failure' ), true ) || ! empty( $runtime_event['status_code'] ) ) {
 				$summary['failed_requests']++;
 			}
 
-			if ( '' !== (string) ( $runtime_event['mutation_kind'] ?? '' ) || in_array( $type, array( 'callback_mutation', 'asset_mutation' ), true ) ) {
+			if ( '' !== (string) ( $runtime_event['mutation_kind'] ?? '' ) || in_array( $type, array( 'callback_mutation', 'asset_mutation', 'asset_lifecycle' ), true ) ) {
 				$summary['mutations']++;
 			}
 
@@ -1219,9 +1524,19 @@ final class DashboardPage {
 				'message'          => sanitize_textarea_field( (string) ( $runtime_event['message'] ?? '' ) ),
 				'request_context'  => sanitize_text_field( (string) ( $runtime_event['request_context'] ?? '' ) ),
 				'request_uri'      => sanitize_text_field( (string) ( $runtime_event['request_uri'] ?? '' ) ),
+				'request_scope'    => sanitize_text_field( (string) ( $runtime_event['request_scope'] ?? '' ) ),
+				'scope_type'       => sanitize_key( (string) ( $runtime_event['scope_type'] ?? '' ) ),
 				'resource'         => sanitize_text_field( (string) ( $runtime_event['resource'] ?? '' ) ),
+				'resource_type'    => sanitize_key( (string) ( $runtime_event['resource_type'] ?? '' ) ),
+				'resource_key'     => sanitize_text_field( (string) ( $runtime_event['resource_key'] ?? '' ) ),
 				'execution_surface'=> sanitize_text_field( (string) ( $runtime_event['execution_surface'] ?? '' ) ),
+				'hook'             => sanitize_text_field( (string) ( $runtime_event['hook'] ?? '' ) ),
 				'failure_mode'     => str_replace( '_', ' ', sanitize_key( (string) ( $runtime_event['failure_mode'] ?? '' ) ) ),
+				'evidence_source'  => $this->humanize_runtime_hint( sanitize_key( (string) ( $runtime_event['evidence_source'] ?? '' ) ) ),
+				'attribution_label'=> $this->humanize_status_token( sanitize_key( (string) ( $runtime_event['attribution_status'] ?? '' ) ) ),
+				'mutation_label'   => $this->humanize_status_token( sanitize_key( (string) ( $runtime_event['mutation_status'] ?? '' ) ) ),
+				'actor_label'      => '' !== $actor_slug ? $this->humanize_runtime_hint( $actor_slug ) : '',
+				'target_owner_label' => '' !== $target_owner_slug ? $this->humanize_runtime_hint( $target_owner_slug ) : '',
 				'status_code'      => (int) ( $runtime_event['status_code'] ?? 0 ),
 				'resource_hints'   => array_values(
 					array_map(
@@ -1230,6 +1545,10 @@ final class DashboardPage {
 					)
 				),
 				'owner_labels'     => array_values( array_unique( array_filter( $owner_labels ) ) ),
+				'state_changes'    => $this->summarize_state_delta(
+					is_array( $runtime_event['previous_state'] ?? null ) ? $runtime_event['previous_state'] : array(),
+					is_array( $runtime_event['new_state'] ?? null ) ? $runtime_event['new_state'] : array()
+				),
 				'matched_findings' => array_values( $matched_findings ),
 			);
 		}
@@ -1260,6 +1579,8 @@ final class DashboardPage {
 		$event_surface    = strtolower( sanitize_text_field( (string) ( $runtime_event['execution_surface'] ?? '' ) ) );
 		$finding_surface  = strtolower( sanitize_text_field( (string) ( $finding['execution_surface'] ?? '' ) ) );
 		$owner_slugs      = is_array( $runtime_event['owner_slugs'] ?? null ) ? array_values( array_filter( array_map( 'sanitize_key', $runtime_event['owner_slugs'] ) ) ) : array();
+		$actor_slug       = sanitize_key( (string) ( $runtime_event['actor_slug'] ?? '' ) );
+		$target_owner_slug = sanitize_key( (string) ( $runtime_event['target_owner_slug'] ?? '' ) );
 		$resource_hints   = is_array( $runtime_event['resource_hints'] ?? null ) ? array_values( array_filter( array_map( 'sanitize_text_field', $runtime_event['resource_hints'] ) ) ) : array();
 		$plugin_tokens    = array_filter(
 			array(
@@ -1303,6 +1624,16 @@ final class DashboardPage {
 			}
 		}
 
+		if ( '' !== $actor_slug ) {
+			$owner_slugs[] = $actor_slug;
+		}
+
+		if ( '' !== $target_owner_slug ) {
+			$owner_slugs[] = $target_owner_slug;
+		}
+
+		$owner_slugs = array_values( array_unique( array_filter( $owner_slugs ) ) );
+
 		foreach ( $plugin_tokens as $plugin_token ) {
 			if ( '' === $plugin_token ) {
 				continue;
@@ -1337,11 +1668,15 @@ final class DashboardPage {
 		$labels = array(
 			'js_error'          => __( 'JS Error', 'plugin-conflict-debugger' ),
 			'promise_rejection' => __( 'Promise Rejection', 'plugin-conflict-debugger' ),
+			'js_promise'        => __( 'Promise Rejection', 'plugin-conflict-debugger' ),
 			'missing_asset'     => __( 'Missing Asset', 'plugin-conflict-debugger' ),
+			'resource_error'    => __( 'Resource Error', 'plugin-conflict-debugger' ),
 			'http_response'     => __( 'Failed Request', 'plugin-conflict-debugger' ),
+			'network_failure'   => __( 'Failed Request', 'plugin-conflict-debugger' ),
 			'php_runtime'       => __( 'PHP Runtime', 'plugin-conflict-debugger' ),
 			'callback_mutation' => __( 'Callback Mutation', 'plugin-conflict-debugger' ),
 			'asset_mutation'    => __( 'Asset Mutation', 'plugin-conflict-debugger' ),
+			'asset_lifecycle'   => __( 'Asset Lifecycle', 'plugin-conflict-debugger' ),
 		);
 
 		return $labels[ $type ] ?? __( 'Runtime Event', 'plugin-conflict-debugger' );
@@ -1399,11 +1734,11 @@ final class DashboardPage {
 		$type       = sanitize_key( (string) ( $runtime_event['type'] ?? 'runtime' ) );
 		$status_code = (int) ( $runtime_event['status_code'] ?? 0 );
 
-		if ( in_array( $type, array( 'php_runtime', 'js_error', 'missing_asset' ), true ) || $status_code >= 500 ) {
+		if ( in_array( $type, array( 'php_runtime', 'js_error', 'missing_asset', 'resource_error' ), true ) || $status_code >= 500 ) {
 			return 'critical';
 		}
 
-		if ( in_array( $type, array( 'callback_mutation', 'asset_mutation', 'promise_rejection' ), true ) || $status_code >= 400 ) {
+		if ( in_array( $type, array( 'callback_mutation', 'asset_mutation', 'asset_lifecycle', 'promise_rejection', 'js_promise', 'network_failure' ), true ) || $status_code >= 400 ) {
 			return 'warning';
 		}
 
@@ -1431,6 +1766,68 @@ final class DashboardPage {
 		}
 
 		return ucwords( str_replace( array( '-', '_' ), ' ', $hint ) );
+	}
+
+	/**
+	 * Humanizes a status token for runtime metadata.
+	 *
+	 * @param string $token Raw status token.
+	 * @return string
+	 */
+	private function humanize_status_token( string $token ): string {
+		$token = sanitize_key( $token );
+		if ( '' === $token ) {
+			return '';
+		}
+
+		return ucwords( str_replace( array( '-', '_' ), ' ', $token ) );
+	}
+
+	/**
+	 * Summarizes before/after state deltas for trace events.
+	 *
+	 * @param array<string, mixed> $previous_state Previous state.
+	 * @param array<string, mixed> $new_state New state.
+	 * @return string[]
+	 */
+	private function summarize_state_delta( array $previous_state, array $new_state ): array {
+		$keys     = array_unique( array_merge( array_keys( $previous_state ), array_keys( $new_state ) ) );
+		$changes  = array();
+
+		foreach ( $keys as $key ) {
+			$left  = $previous_state[ $key ] ?? '';
+			$right = $new_state[ $key ] ?? '';
+
+			if ( wp_json_encode( $left ) === wp_json_encode( $right ) ) {
+				continue;
+			}
+
+			$changes[] = sprintf(
+				/* translators: 1: field, 2: previous value, 3: new value. */
+				__( '%1$s changed from %2$s to %3$s', 'plugin-conflict-debugger' ),
+				$this->humanize_runtime_hint( (string) $key ),
+				$this->stringify_state_value( $left ),
+				$this->stringify_state_value( $right )
+			);
+		}
+
+		return array_slice( $changes, 0, 4 );
+	}
+
+	/**
+	 * Formats a state value for UI display.
+	 *
+	 * @param mixed $value State value.
+	 * @return string
+	 */
+	private function stringify_state_value( mixed $value ): string {
+		if ( is_array( $value ) ) {
+			$value = implode( ', ', array_map( 'strval', $value ) );
+		}
+
+		$string_value = trim( sanitize_text_field( (string) $value ) );
+
+		return '' === $string_value ? __( '(empty)', 'plugin-conflict-debugger' ) : $string_value;
 	}
 
 	/**
@@ -1524,6 +1921,59 @@ final class DashboardPage {
 				)
 			)
 		);
+	}
+
+	/**
+	 * Formats a trace metric delta for UI display.
+	 *
+	 * @param int $delta Delta value.
+	 * @return string
+	 */
+	private function format_trace_delta( int $delta ): string {
+		if ( 0 === $delta ) {
+			return '0';
+		}
+
+		return $delta > 0 ? '+' . (string) $delta : (string) $delta;
+	}
+
+	/**
+	 * Renders trace-only difference lists.
+	 *
+	 * @param array<string, mixed> $diff Diff payload.
+	 * @return void
+	 */
+	private function render_trace_diff_lists( array $diff ): void {
+		$labels = array(
+			'event_types'        => __( 'Event types', 'plugin-conflict-debugger' ),
+			'execution_surfaces' => __( 'Execution surfaces', 'plugin-conflict-debugger' ),
+			'owners'             => __( 'Observed owners', 'plugin-conflict-debugger' ),
+			'resource_hints'     => __( 'Resource hints', 'plugin-conflict-debugger' ),
+		);
+		$has_items = false;
+
+		foreach ( $labels as $key => $label ) {
+			$items = is_array( $diff[ $key ] ?? null ) ? array_values( array_filter( array_map( 'strval', $diff[ $key ] ) ) ) : array();
+			if ( empty( $items ) ) {
+				continue;
+			}
+
+			$has_items = true;
+			?>
+			<div class="pcd-trace-diff-group">
+				<strong><?php echo esc_html( $label ); ?></strong>
+				<ul class="pcd-meta-list">
+					<?php foreach ( $items as $item ) : ?>
+						<li><?php echo esc_html( $this->humanize_runtime_hint( (string) $item ) ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+			</div>
+			<?php
+		}
+
+		if ( ! $has_items ) {
+			echo '<p>' . esc_html__( 'No unique trace-only signals were captured for this side of the comparison.', 'plugin-conflict-debugger' ) . '</p>';
+		}
 	}
 
 	/**

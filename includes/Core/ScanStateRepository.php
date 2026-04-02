@@ -50,7 +50,7 @@ final class ScanStateRepository {
 	 * @param string $token Scan token.
 	 * @return array<string, mixed>
 	 */
-	public function mark_queued( string $token ): array {
+	public function mark_queued( string $token, string $worker_key = '' ): array {
 		$state = array(
 			'status'        => 'queued',
 			'progress'      => 5,
@@ -61,6 +61,7 @@ final class ScanStateRepository {
 			'completed_at'  => '',
 			'finding_count' => 0,
 			'last_error'    => '',
+			'worker_key'    => sanitize_text_field( $worker_key ),
 		);
 
 		$this->save( $state );
@@ -108,6 +109,7 @@ final class ScanStateRepository {
 		$state['completed_at']  = current_time( 'mysql' );
 		$state['finding_count'] = $finding_count;
 		$state['last_error']    = '';
+		$state['worker_key']    = '';
 
 		$this->save( $state );
 	}
@@ -127,6 +129,7 @@ final class ScanStateRepository {
 		$state['updated_at']   = current_time( 'mysql' );
 		$state['completed_at'] = current_time( 'mysql' );
 		$state['last_error']   = $error;
+		$state['worker_key']   = '';
 
 		$this->save( $state );
 	}
@@ -147,6 +150,7 @@ final class ScanStateRepository {
 			'completed_at'  => '',
 			'finding_count' => 0,
 			'last_error'    => '',
+			'worker_key'    => '',
 		);
 	}
 }
