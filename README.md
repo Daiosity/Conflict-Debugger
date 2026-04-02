@@ -1,2 +1,182 @@
-# WP-Plugin-Debug
-A plugin to debug most issues revolving plugin conflicts
+# Plugin Conflict Debugger
+
+Plugin Conflict Debugger is a production-leaning WordPress diagnostics plugin focused on one job:
+
+**helping site owners and developers find real plugin conflicts without wasting hours disabling plugins one by one.**
+
+This project is being built as a practical product, not a generic "site health" clone. The detector is intentionally conservative, context-aware, and designed to earn trust by preferring exact interference signals over vague overlap.
+
+## Why This Exists
+
+WordPress sites often break in ways that are expensive to trace:
+
+- frontend rendering breaks after a plugin update
+- admin screens stop saving properly
+- AJAX or REST requests start failing
+- checkout, login, editor, or routing behavior changes unexpectedly
+- several plugins appear suspicious, but no one knows where to start
+
+Most troubleshooting still depends on manual trial and error. This plugin is meant to shorten that path by surfacing:
+
+- where overlap is happening
+- what shared resource may be involved
+- which request context is affected
+- whether the finding is weak, contextual, concrete, or observed breakage
+
+## Product Positioning
+
+**Promise:** Find likely plugin conflicts before you waste hours disabling plugins manually.
+
+**Design principle:** false positives are worse than missing weak signals.
+
+That means the detector does **not** treat common WordPress behavior as proof of conflict. Shared hooks, broad plugin categories, recent updates, and extreme priorities are weak signals only. High-confidence findings require concrete interference or observed breakage.
+
+## Current Feature Set
+
+### Core scanning
+
+- manual scan trigger from the WordPress admin
+- scan status tracking and persistent scan results
+- environment snapshot capture
+- recent plugin change awareness
+- scan history for comparing results over time
+
+### Conflict detection
+
+- conflict-surface based reasoning instead of broad keyword guessing
+- request-context awareness across frontend, admin, REST, AJAX, login, editor, cron, and commerce flows
+- exact ownership capture for resources like AJAX actions, REST routes, shortcodes, blocks, and asset handles
+- runtime mutation tracking for callback churn and asset dequeue or deregister behavior
+- observer-artifact and global-anomaly classification to reduce false positives from tools like Query Monitor
+
+### Runtime evidence
+
+- recent request context capture
+- lightweight runtime telemetry
+- JS and failed-request evidence surfaced in diagnostics
+- log access checks with graceful fallback when direct `debug.log` access is unavailable
+
+### Admin UX
+
+- WordPress-native admin screen
+- findings tab
+- diagnostics tab
+- plugin-focused drilldown tab
+- runtime events viewer
+- focused diagnostic session workflow for reproducing one issue path at a time
+
+## How The Detector Works
+
+The detector reasons through this model:
+
+`request -> hook -> callback -> resource -> mutation -> breakage`
+
+It classifies evidence into four tiers:
+
+1. **Weak overlap**
+   - shared hooks
+   - broad surface overlap
+   - recent updates
+   - extreme priorities on their own
+2. **Contextual risk**
+   - same request context
+   - same sensitive workflow area
+   - same hook family in a risky flow
+3. **Concrete interference**
+   - same exact resource
+   - callback removal or replacement
+   - asset deregister or dequeue conflicts
+   - same AJAX action, REST route, shortcode, block, slug, or handle
+4. **Observed breakage**
+   - PHP runtime errors
+   - JS failures
+   - failed AJAX or REST requests
+   - missing assets
+   - request-scoped breakage evidence
+
+Severity is capped deliberately:
+
+- weak only: at most `low`
+- weak plus contextual: at most `medium`
+- `high` requires concrete interference
+- `critical` requires observed breakage
+
+## Installation
+
+### WordPress Admin upload
+
+1. Download the WordPress admin package from the project build output or release.
+2. In WordPress, go to `Plugins > Add New > Upload Plugin`.
+3. Upload the ZIP package.
+4. Activate **Plugin Conflict Debugger**.
+5. Open `Tools > Plugin Conflict Debugger`.
+
+### Local development
+
+Copy the plugin folder into:
+
+```text
+wp-content/plugins/plugin-conflict-debugger/
+```
+
+Then activate it from the WordPress admin.
+
+## Repository Structure
+
+```text
+plugin-conflict-debugger/
+|-- assets/
+|-- includes/
+|   |-- Admin/
+|   |-- Core/
+|   |-- Pro/
+|   `-- Support/
+|-- languages/
+|-- tools/
+|-- AGENTS.md
+|-- CHANGELOG.md
+|-- plugin-conflict-debugger.php
+|-- readme.txt
+`-- uninstall.php
+```
+
+## Development Notes
+
+- PHP 8.1+ compatible
+- namespaced OOP architecture
+- WordPress coding standards mindset
+- capability checks, nonces, sanitization, and escaping throughout admin actions
+- premium-ready structure without faking premium functionality
+
+## Roadmap
+
+Near-term priorities:
+
+- stronger request-trace comparison views
+- deeper exact ownership mapping
+- improved plugin-focused diagnostics
+- safer staging-oriented isolation workflows
+
+Longer-term premium-oriented direction:
+
+- safe test mode
+- binary-search conflict isolation
+- scheduled scans and alerts
+- staging-focused diagnostics and remediation guidance
+
+## Changelog
+
+Project release history lives in:
+
+- [`CHANGELOG.md`](./CHANGELOG.md)
+- [`readme.txt`](./readme.txt)
+
+## Repository Hygiene
+
+This repository is maintained as a real product project and portfolio-quality codebase. Changes should favor:
+
+- trustworthy diagnostics over noisy heuristics
+- clean structure over quick fixes
+- meaningful documentation
+- specific commit history
+- practical product value
