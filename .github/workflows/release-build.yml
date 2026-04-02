@@ -1,0 +1,39 @@
+name: Build Plugin Packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build plugin ZIP packages
+        shell: pwsh
+        run: ./tools/build-standard-zip.ps1
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-conflict-debugger-packages
+          path: |
+            build/plugin-conflict-debugger-wp-admin.zip
+            build/plugin-conflict-debugger.zip
+
+      - name: Publish tagged release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            build/plugin-conflict-debugger-wp-admin.zip
+            build/plugin-conflict-debugger.zip

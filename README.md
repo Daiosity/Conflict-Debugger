@@ -65,6 +65,20 @@ That means the detector does **not** treat common WordPress behavior as proof of
 - runtime events viewer
 - focused diagnostic session workflow for reproducing one issue path at a time
 
+## Screenshots
+
+UI screenshots live in [`docs/screenshots/`](./docs/screenshots/).
+
+Recommended gallery for the repo:
+
+- dashboard overview
+- findings tab with evidence-rich results
+- diagnostics tab with runtime events
+- plugin drilldown view
+- focused diagnostic session workflow
+
+This keeps the repository ready for portfolio presentation without cluttering the source tree.
+
 ## How The Detector Works
 
 The detector reasons through this model:
@@ -121,11 +135,23 @@ wp-content/plugins/plugin-conflict-debugger/
 
 Then activate it from the WordPress admin.
 
+## Releases
+
+This repository includes a GitHub Actions workflow that can build release-ready plugin ZIP packages.
+
+Release outputs:
+
+- `plugin-conflict-debugger-wp-admin.zip`
+- `plugin-conflict-debugger.zip`
+
+The workflow can be triggered manually or from version tags, which makes the repository easier to maintain and present professionally.
+
 ## Repository Structure
 
 ```text
 plugin-conflict-debugger/
 |-- assets/
+|-- docs/
 |-- includes/
 |   |-- Admin/
 |   |-- Core/

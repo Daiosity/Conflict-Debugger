@@ -3,19 +3,20 @@ param()
 $ErrorActionPreference = 'Stop'
 
 # Fixed slug. Do not derive from the current folder name.
-$Slug = 'plugin-debugger'
+$Slug = 'plugin-conflict-debugger'
 $RootDir = Split-Path -Parent $PSScriptRoot
 $BuildDir = Join-Path $RootDir 'build'
-$DistDir = Join-Path $RootDir 'dist'
+$DistDir = Join-Path $RootDir 'build'
 $StagingRoot = Join-Path $BuildDir $Slug
 $ZipPath = Join-Path $DistDir ($Slug + '.zip')
 
 # Explicit include list keeps the package predictable.
 $IncludeItems = @(
-    'plugin-debugger.php',
+    'plugin-conflict-debugger.php',
     'includes',
-    'admin',
     'assets',
+    'languages',
+    'uninstall.php',
     'readme.txt'
 )
 
