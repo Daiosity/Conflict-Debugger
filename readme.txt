@@ -4,7 +4,7 @@ Tags: diagnostics, debugging, plugins, conflicts, health
 Requires at least: 6.2
 Tested up to: 6.5
 Requires PHP: 8.1
-Stable tag: 1.0.22
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -18,7 +18,10 @@ The free/core foundation includes:
 
 * A clean WordPress-native dashboard under Tools
 * Manual scans of active plugins, environment context, and available error signals
+* Diagnostic session trace comparison for reproduced issue paths
+* Focused validation mode for one plugin pair, hook, asset handle, REST route, or AJAX action
 * Confidence-based conflict findings instead of fake certainty
+* Finding detail views with evidence strength, runtime links, and scoring rationale
 * Summary cards for active plugins, error signals, likely conflicts, and recent plugin changes
 * Practical next-step recommendations for staging-first troubleshooting
 
@@ -46,6 +49,45 @@ No. If `debug.log` is unavailable, the plugin degrades gracefully and explains t
 The current architecture is prepared for safe test mode, binary-search auto-isolation, scheduled scans, alerts, and staging-only advanced diagnostics.
 
 == Changelog ==
+
+= 1.1.0 =
+- Added focused validation mode controls so developers can narrow telemetry to one plugin pair, hook, asset handle, REST route, or AJAX action before rerunning a scan.
+- Added finding detail drilldowns with evidence strength, scoring rationale, resource/context metadata, and direct links to matching runtime events.
+- Added detector fixtures for known noisy admin overlap, asset lifecycle mutation, callback removal, REST route collision, and AJAX action collision regression testing.
+
+= 1.0.28 =
+- Added a root task list so the next diagnostics milestones are tracked directly in the repository.
+- Upgraded callback mutation tracing so removed, replaced, and priority-shifted callbacks keep request scope, attribution state, and before/after callback snapshots.
+- Tightened callback mutation scoring so direct callback interference only escalates when actor attribution is present.
+
+= 1.0.27 =
+
+* Added a causal trace-event foundation with per-request IDs, richer runtime event fields, and request-scope capture so diagnostics can connect resource changes back to one concrete execution path.
+* Added a conservative asset lifecycle tracer that records plugin-owned handle registrations, queue changes, and state mutations with attribution, mutation status, and before/after state snapshots.
+* Expanded the diagnostics runtime viewer to show request scope, actor attribution, target owners, mutation state, and state deltas so developers can inspect "what changed, where, and by whom" more directly.
+
+= 1.0.26 =
+
+* Added strict hard gates so findings without strong proof cannot rise above Medium unless pair-specific runtime breakage is directly linked to the same context, surface, resource, and request path.
+* Normalized common admin lifecycle hooks like admin_menu, admin_init, current_screen, and admin_enqueue_scripts so broad admin overlap does not inflate into probable conflicts.
+* Split runtime telemetry into generic runtime noise versus pair-specific runtime breakage and downranked third-party contaminated admin clues.
+
+= 1.0.25 =
+
+* Refactored detector scoring around WordPress-aware evidence strength so common hooks, broad surfaces, extreme priorities, and mixed-context overlap no longer inflate into serious findings on their own.
+* Added stricter context-purity scoring and new finding categories like overlap, shared surface, potential interference, probable conflict, and confirmed conflict.
+* Added evidence strength breakdowns and scoring explanations to findings so developers can see why a result stayed low, medium, high, or critical.
+
+= 1.0.24 =
+
+* Added a direct loopback worker fallback so scans can start even when the site does not reliably trigger the queued WP-Cron worker.
+* Added queued-scan recovery during status polling so long-stuck queued jobs can self-recover instead of waiting indefinitely.
+
+= 1.0.23 =
+
+* Added request trace comparison in Diagnostics so reproduced sessions can compare the most abnormal captured trace against the closest calmer baseline.
+* Added a scan-time trace snapshot model that groups request contexts and runtime events into comparable traces with resource, owner, surface, and failure deltas.
+* Added compact trace snapshots to scan history storage so trace-aware diagnostics can expand cleanly later.
 
 = 1.0.22 =
 

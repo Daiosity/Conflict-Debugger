@@ -2,6 +2,47 @@
 
 All notable changes to `Plugin Conflict Debugger` are tracked here.
 
+## 1.1.0
+
+- Added focused validation mode controls so a developer can narrow telemetry to one plugin pair, hook, asset handle, REST route, or AJAX action before rerunning a scan.
+- Added finding detail drilldowns with evidence strength, scoring rationale, concrete resource/context metadata, and direct links to matching runtime events.
+- Added detector fixtures for noisy admin overlap, asset lifecycle mutation, callback removal, REST route collision, and AJAX action collision regression checks.
+
+## 1.0.27
+
+- Added a causal trace-event foundation with per-request IDs, request scopes, attribution status, mutation status, and before/after state payloads so runtime evidence can be tied back to one concrete execution path.
+- Added a conservative asset lifecycle tracer that records plugin-owned handle registrations, queue changes, and state mutations with mutator attribution when it can be narrowed safely.
+- Expanded the diagnostics runtime viewer to surface request scope, actor attribution, target owners, and state changes so developers can inspect "what changed, where, and by whom" more directly.
+
+## 1.0.28
+
+- Added a root `TASKS.md` file so the next diagnostics milestones are tracked directly in the repository.
+- Reworked callback mutation tracing to record removed, replaced, and priority-shifted callbacks with request scope, attribution state, and before/after callback snapshots.
+- Tightened callback mutation scoring so pairwise escalation only happens when callback mutation evidence has real actor attribution.
+
+## 1.0.26
+
+- Added strict hard gates so findings without strong proof cannot rise above Medium unless pair-specific runtime breakage is directly linked to the same context, execution surface, concrete resource, and request path.
+- Normalized common admin lifecycle hooks like `admin_menu`, `admin_init`, `current_screen`, `admin_enqueue_scripts`, and `load-post.php` so broad admin overlap no longer inflates into probable conflicts.
+- Split runtime telemetry into generic runtime noise versus pair-specific runtime breakage, and downranked third-party contaminated admin clues into soft support instead of direct pair evidence.
+
+## 1.0.25
+
+- Refactored detector scoring around WordPress-aware evidence strength so common hooks, broad surfaces, extreme priorities, and mixed-context overlap do not inflate into serious findings by themselves.
+- Added stricter context-purity selection so findings are scored from the strongest single request context instead of blending unrelated admin, frontend, REST, or cron clues.
+- Added clearer finding categories, evidence-strength breakdowns, and scoring explanations to make the dashboard more trustworthy for developers reviewing noisy overlap cases.
+
+## 1.0.24
+
+- Added a direct loopback worker fallback so scans can start even when the site does not reliably trigger the queued WP-Cron worker.
+- Added queued-scan recovery during status polling so long-stuck queued jobs can self-recover instead of waiting indefinitely.
+
+## 1.0.23
+
+- Added request trace comparison in Diagnostics so reproduced sessions can compare the most abnormal captured trace against the closest calmer baseline.
+- Added a scan-time trace snapshot model that groups request contexts and runtime events into comparable traces with resource, owner, surface, and failure deltas.
+- Added compact trace snapshots to scan history storage so trace-aware diagnostics can expand cleanly later.
+
 ## 1.0.22
 
 - Added a focused Diagnostic Session workflow so users can target one site area, reproduce the issue, and capture session-tagged telemetry for that trace.

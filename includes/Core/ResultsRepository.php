@@ -99,6 +99,7 @@ final class ResultsRepository {
 	 */
 	private function append_history( array $results ): void {
 		$history = $this->get_history( self::MAX_HISTORY );
+		$trace_analyzer = new TraceAnalyzer();
 
 		$entry = array(
 			'scan_timestamp' => sanitize_text_field( (string) ( $results['scan_timestamp'] ?? current_time( 'mysql' ) ) ),
@@ -113,6 +114,7 @@ final class ResultsRepository {
 			'log_access'      => is_array( $results['log_access'] ?? null ) ? $results['log_access'] : array(),
 			'findings_snapshot' => $this->build_findings_snapshot( is_array( $results['findings'] ?? null ) ? $results['findings'] : array() ),
 			'plugins_snapshot'  => $this->build_plugins_snapshot( is_array( $results['plugins'] ?? null ) ? $results['plugins'] : array() ),
+			'trace_snapshot'    => $trace_analyzer->build_history_snapshot( is_array( $results['trace_snapshot'] ?? null ) ? $results['trace_snapshot'] : array() ),
 		);
 
 		array_unshift( $history, $entry );

@@ -38,15 +38,23 @@ final class ErrorCollector {
 	private DiagnosticSessionRepository $sessions;
 
 	/**
+	 * Validation mode repository.
+	 *
+	 * @var ValidationModeRepository
+	 */
+	private ValidationModeRepository $validation;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Logger                     $logger Runtime logger.
 	 * @param RuntimeTelemetryRepository $telemetry Telemetry repository.
 	 */
-	public function __construct( Logger $logger, RuntimeTelemetryRepository $telemetry, DiagnosticSessionRepository $sessions ) {
+	public function __construct( Logger $logger, RuntimeTelemetryRepository $telemetry, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation ) {
 		$this->logger    = $logger;
 		$this->telemetry = $telemetry;
 		$this->sessions  = $sessions;
+		$this->validation = $validation;
 	}
 
 	/**
@@ -66,6 +74,10 @@ final class ErrorCollector {
 			'diagnostic_session' => array(
 				'active' => $this->sessions->get_active(),
 				'last'   => $this->sessions->get_last(),
+			),
+			'validation_mode'   => array(
+				'active' => $this->validation->get_active(),
+				'last'   => $this->validation->get_last(),
 			),
 			'log_access'       => $this->build_log_access_report(),
 		);
@@ -107,22 +119,45 @@ final class ErrorCollector {
 
 		foreach ( $runtime_events as $event ) {
 			$signals['entries'][] = array(
-				'type'            => (string) ( $event['type'] ?? 'runtime_event' ),
-				'level'           => (string) ( $event['level'] ?? 'info' ),
-				'message'         => (string) ( $event['message'] ?? '' ),
-				'file'            => (string) ( $event['source'] ?? '' ),
-				'line'            => 0,
-				'request_context' => (string) ( $event['request_context'] ?? '' ),
-				'request_uri'     => (string) ( $event['request_uri'] ?? '' ),
-				'resource'        => (string) ( $event['resource'] ?? '' ),
-				'execution_surface' => (string) ( $event['execution_surface'] ?? '' ),
-				'callback_identifier' => (string) ( $event['callback_identifier'] ?? '' ),
-				'failure_mode'    => (string) ( $event['failure_mode'] ?? '' ),
-				'mutation_kind'   => (string) ( $event['mutation_kind'] ?? '' ),
-				'status_code'     => (int) ( $event['status_code'] ?? 0 ),
-				'session_id'      => (string) ( $event['session_id'] ?? '' ),
-				'resource_hints'  => is_array( $event['resource_hints'] ?? null ) ? $event['resource_hints'] : array(),
-				'owner_slugs'     => is_array( $event['owner_slugs'] ?? null ) ? $event['owner_slugs'] : array(),
+				'event_id'             => (string) ( $event['event_id'] ?? '' ),
+				'request_id'           => (string) ( $event['request_id'] ?? '' ),
+				'sequence'             => (int) ( $event['sequence'] ?? 0 ),
+				'type'                 => (string) ( $event['type'] ?? 'runtime_event' ),
+				'evidence_source'      => (string) ( $event['evidence_source'] ?? '' ),
+				'level'                => (string) ( $event['level'] ?? 'info' ),
+				'message'              => (string) ( $event['message'] ?? '' ),
+				'file'                 => (string) ( $event['source'] ?? '' ),
+				'line'                 => 0,
+				'request_context'      => (string) ( $event['request_context'] ?? '' ),
+				'request_uri'          => (string) ( $event['request_uri'] ?? '' ),
+				'request_scope'        => (string) ( $event['request_scope'] ?? '' ),
+				'scope_type'           => (string) ( $event['scope_type'] ?? '' ),
+				'resource'             => (string) ( $event['resource'] ?? '' ),
+				'resource_type'        => (string) ( $event['resource_type'] ?? '' ),
+				'resource_key'         => (string) ( $event['resource_key'] ?? '' ),
+				'execution_surface'    => (string) ( $event['execution_surface'] ?? '' ),
+				'hook'                 => (string) ( $event['hook'] ?? '' ),
+				'callback'             => (string) ( $event['callback'] ?? '' ),
+				'priority'             => (int) ( $event['priority'] ?? 0 ),
+				'callback_identifier'  => (string) ( $event['callback_identifier'] ?? '' ),
+				'failure_mode'         => (string) ( $event['failure_mode'] ?? '' ),
+				'mutation_kind'        => (string) ( $event['mutation_kind'] ?? '' ),
+				'mutation_status'      => (string) ( $event['mutation_status'] ?? '' ),
+				'attribution_status'   => (string) ( $event['attribution_status'] ?? '' ),
+				'contamination_status' => (string) ( $event['contamination_status'] ?? '' ),
+				'actor_slug'           => (string) ( $event['actor_slug'] ?? '' ),
+				'target_owner_slug'    => (string) ( $event['target_owner_slug'] ?? '' ),
+				'status_code'          => (int) ( $event['status_code'] ?? 0 ),
+				'session_id'           => (string) ( $event['session_id'] ?? '' ),
+				'validation_mode_id'   => (string) ( $event['validation_mode_id'] ?? '' ),
+				'validation_target_type' => (string) ( $event['validation_target_type'] ?? '' ),
+				'validation_target_value' => (string) ( $event['validation_target_value'] ?? '' ),
+				'validation_label'     => (string) ( $event['validation_label'] ?? '' ),
+				'validation_matched'   => ! empty( $event['validation_matched'] ),
+				'resource_hints'       => is_array( $event['resource_hints'] ?? null ) ? $event['resource_hints'] : array(),
+				'owner_slugs'          => is_array( $event['owner_slugs'] ?? null ) ? $event['owner_slugs'] : array(),
+				'previous_state'       => is_array( $event['previous_state'] ?? null ) ? $event['previous_state'] : array(),
+				'new_state'            => is_array( $event['new_state'] ?? null ) ? $event['new_state'] : array(),
 			);
 		}
 

@@ -25,3 +25,5 @@ delete_option( 'pcd_ajax_action_snapshot' );
 delete_option( 'pcd_asset_handle_snapshot' );
 delete_option( 'pcd_active_diagnostic_session' );
 delete_option( 'pcd_last_diagnostic_session' );
+delete_option( 'pcd_active_validation_mode' );
+delete_option( 'pcd_last_validation_mode' );

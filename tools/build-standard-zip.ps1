@@ -1,5 +1,5 @@
 param(
-	[string]$Version = '1.0.22'
+	[string]$Version = '1.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,7 +45,7 @@ function New-NormalizedZip {
 
 		Get-ChildItem -LiteralPath $normalizedSourceRoot -Recurse -Force | ForEach-Object {
 			$fullName = [System.IO.Path]::GetFullPath($_.FullName)
-			$relativePath = $fullName.Substring($normalizedSourceRoot.Length).TrimStart('\\', '/')
+			$relativePath = $fullName.Substring($normalizedSourceRoot.Length).TrimStart('\', '/')
 			$entryName = if ($RootPrefix -ne '') {
 				($RootPrefix.TrimEnd('/') + '/' + ($relativePath -replace '\\', '/')).TrimStart('/')
 			}

@@ -18,8 +18,20 @@
 		return pcdRuntime.requestContext || 'frontend';
 	}
 
+	function requestId() {
+		return pcdRuntime.requestId || '';
+	}
+
 	function requestUri() {
 		return pcdRuntime.requestUri || window.location.pathname + window.location.search;
+	}
+
+	function requestScope() {
+		return pcdRuntime.requestScope || window.location.pathname;
+	}
+
+	function scopeType() {
+		return pcdRuntime.scopeType || 'path';
 	}
 
 	function sessionId() {
@@ -58,13 +70,22 @@
 		body.append('type', payload.type || 'client');
 		body.append('level', payload.level || 'error');
 		body.append('message', payload.message || '');
+		body.append('request_id', payload.request_id || requestId());
 		body.append('request_context', payload.request_context || requestContext());
 		body.append('request_uri', payload.request_uri || requestUri());
+		body.append('request_scope', payload.request_scope || requestScope());
+		body.append('scope_type', payload.scope_type || scopeType());
 		body.append('source', payload.source || '');
 		body.append('resource', payload.resource || '');
+		body.append('resource_type', payload.resource_type || '');
+		body.append('resource_key', payload.resource_key || '');
+		body.append('execution_surface', payload.execution_surface || '');
+		body.append('hook', payload.hook || '');
+		body.append('callback', payload.callback || '');
+		body.append('priority', String(payload.priority || 0));
 		body.append('status_code', String(payload.status_code || 0));
 		body.append('session_id', payload.session_id || sessionId());
-		body.append('resource_hints', JSON.stringify(Array.isArray(pcdRuntime.resourceHints) ? pcdRuntime.resourceHints : []));
+		body.append('resource_hints', JSON.stringify(Array.isArray(payload.resource_hints) ? payload.resource_hints : (Array.isArray(pcdRuntime.resourceHints) ? pcdRuntime.resourceHints : [])));
 
 		if (navigator.sendBeacon) {
 			navigator.sendBeacon(pcdRuntime.ajaxUrl, body);
