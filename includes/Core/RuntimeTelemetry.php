@@ -36,15 +36,23 @@ final class RuntimeTelemetry {
 	private DiagnosticSessionRepository $sessions;
 
 	/**
+	 * Validation mode repository.
+	 *
+	 * @var ValidationModeRepository
+	 */
+	private ValidationModeRepository $validation;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param RuntimeTelemetryRepository $repository Telemetry repository.
 	 * @param RegistrySnapshot           $registry Registry snapshot service.
 	 */
-	public function __construct( RuntimeTelemetryRepository $repository, RegistrySnapshot $registry, DiagnosticSessionRepository $sessions ) {
+	public function __construct( RuntimeTelemetryRepository $repository, RegistrySnapshot $registry, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation ) {
 		$this->repository = $repository;
 		$this->registry   = $registry;
 		$this->sessions   = $sessions;
+		$this->validation = $validation;
 	}
 
 	/**
@@ -147,6 +155,8 @@ final class RuntimeTelemetry {
 			$event['session_id'] = (string) $active_session['id'];
 		}
 
+		$event = $this->validation->decorate_event( $event );
+
 		if ( '' !== $event['message'] ) {
 			$this->repository->record_event( $event );
 
@@ -168,7 +178,7 @@ final class RuntimeTelemetry {
 			return;
 		}
 
-		$context = $this->build_request_context();
+		$context = $this->validation->decorate_context( $this->build_request_context() );
 		$this->repository->record_request_context( $context );
 
 		if ( ! empty( $context['session_id'] ) ) {
@@ -178,7 +188,8 @@ final class RuntimeTelemetry {
 		$last_error = error_get_last();
 		if ( is_array( $last_error ) && $this->is_fatal_error( (int) ( $last_error['type'] ?? 0 ) ) ) {
 			$this->repository->record_event(
-				array(
+				$this->validation->decorate_event(
+					array(
 					'event_id'             => TraceEvent::new_event_id(),
 					'request_id'           => (string) ( $context['request_id'] ?? TraceEvent::current_request_id() ),
 					'sequence'             => TraceEvent::next_sequence(),
@@ -198,6 +209,7 @@ final class RuntimeTelemetry {
 					'status_code'          => 500,
 					'session_id'           => (string) ( $context['session_id'] ?? '' ),
 					'resource_hints'       => is_array( $context['resource_hints'] ?? null ) ? $context['resource_hints'] : array(),
+					)
 				)
 			);
 		}
@@ -205,7 +217,8 @@ final class RuntimeTelemetry {
 		$status_code = http_response_code();
 		if ( is_int( $status_code ) && $status_code >= 400 ) {
 			$this->repository->record_event(
-				array(
+				$this->validation->decorate_event(
+					array(
 					'event_id'             => TraceEvent::new_event_id(),
 					'request_id'           => (string) ( $context['request_id'] ?? TraceEvent::current_request_id() ),
 					'sequence'             => TraceEvent::next_sequence(),
@@ -227,6 +240,7 @@ final class RuntimeTelemetry {
 					'status_code'          => $status_code,
 					'session_id'           => (string) ( $context['session_id'] ?? '' ),
 					'resource_hints'       => is_array( $context['resource_hints'] ?? null ) ? $context['resource_hints'] : array(),
+					)
 				)
 			);
 		}
@@ -262,6 +276,7 @@ final class RuntimeTelemetry {
 				'scopeType'      => $request_scope['type'],
 				'resourceHints'  => $this->detect_resource_hints(),
 				'activeSession'  => $this->session_payload_for_client( $default_context ),
+				'activeValidation' => $this->validation_payload_for_client(),
 				'restPrefix'     => trailingslashit( rest_get_url_prefix() ),
 				'ajaxMarkers'    => array( 'admin-ajax.php' ),
 			)
@@ -697,6 +712,27 @@ final class RuntimeTelemetry {
 			'id'             => sanitize_text_field( (string) $session['id'] ),
 			'target_context' => sanitize_key( (string) ( $session['target_context'] ?? 'all' ) ),
 			'label'          => sanitize_text_field( (string) ( $session['label'] ?? '' ) ),
+		);
+	}
+
+	/**
+	 * Returns the active validation mode for client-side telemetry.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function validation_payload_for_client(): array {
+		$mode = $this->validation->get_active();
+		if ( empty( $mode['id'] ) ) {
+			return array();
+		}
+
+		return array(
+			'id'            => sanitize_text_field( (string) $mode['id'] ),
+			'targetType'    => sanitize_key( (string) ( $mode['target_type'] ?? '' ) ),
+			'targetValue'   => sanitize_text_field( (string) ( $mode['target_value'] ?? '' ) ),
+			'pluginA'       => sanitize_key( (string) ( $mode['plugin_a'] ?? '' ) ),
+			'pluginB'       => sanitize_key( (string) ( $mode['plugin_b'] ?? '' ) ),
+			'label'         => sanitize_text_field( (string) ( $mode['label'] ?? '' ) ),
 		);
 	}
 }

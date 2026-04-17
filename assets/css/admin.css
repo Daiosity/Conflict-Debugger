@@ -164,6 +164,11 @@
 	margin: 14px 0;
 }
 
+.pcd-validation-controls .regular-text {
+	min-width: 260px;
+	max-width: 100%;
+}
+
 .pcd-session-status {
 	padding: 14px;
 	border: 1px solid #dcdcde;
@@ -284,6 +289,10 @@
 	vertical-align: top;
 }
 
+.pcd-finding-detail-row td {
+	background: #f6f7f7;
+}
+
 .pcd-findings-table-wrap {
 	overflow-x: auto;
 }
@@ -382,6 +391,47 @@
 	gap: 6px;
 	font-weight: 500;
 	text-decoration: none;
+}
+
+.pcd-finding-detail-toggle {
+	margin-top: 10px;
+	padding-left: 0;
+}
+
+.pcd-finding-detail {
+	padding: 16px 8px 6px;
+}
+
+.pcd-finding-detail-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+	gap: 14px;
+	margin-bottom: 18px;
+}
+
+.pcd-finding-detail-section + .pcd-finding-detail-section {
+	margin-top: 18px;
+}
+
+.pcd-finding-detail-section h4 {
+	margin-top: 0;
+	margin-bottom: 8px;
+}
+
+.pcd-finding-evidence-list {
+	display: grid;
+	gap: 12px;
+}
+
+.pcd-finding-evidence-item {
+	padding: 14px;
+	border: 1px solid #dcdcde;
+	border-radius: 10px;
+	background: #fff;
+}
+
+.pcd-finding-evidence-item p {
+	margin: 8px 0 0;
 }
 
 .pcd-explanation {

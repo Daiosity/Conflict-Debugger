@@ -14,6 +14,7 @@ use PluginConflictDebugger\Core\ResultsRepository;
 use PluginConflictDebugger\Core\ScanStateRepository;
 use PluginConflictDebugger\Core\Scanner;
 use PluginConflictDebugger\Core\TraceAnalyzer;
+use PluginConflictDebugger\Core\ValidationModeRepository;
 use PluginConflictDebugger\Support\Capabilities;
 use PluginConflictDebugger\Support\Helpers;
 use Throwable;
@@ -67,6 +68,13 @@ final class DashboardPage {
 	private DiagnosticSessionRepository $sessions;
 
 	/**
+	 * Validation mode repository.
+	 *
+	 * @var ValidationModeRepository
+	 */
+	private ValidationModeRepository $validation;
+
+	/**
 	 * Trace analyzer.
 	 *
 	 * @var TraceAnalyzer
@@ -89,11 +97,12 @@ final class DashboardPage {
 	 * @param DiagnosticSessionRepository $sessions Diagnostic session repository.
 	 * @param Capabilities        $capabilities Capability service.
 	 */
-	public function __construct( Scanner $scanner, ResultsRepository $repository, ScanStateRepository $scan_state, DiagnosticSessionRepository $sessions, Capabilities $capabilities, TraceAnalyzer $trace_analyzer ) {
+	public function __construct( Scanner $scanner, ResultsRepository $repository, ScanStateRepository $scan_state, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation, Capabilities $capabilities, TraceAnalyzer $trace_analyzer ) {
 		$this->scanner      = $scanner;
 		$this->repository   = $repository;
 		$this->scan_state   = $scan_state;
 		$this->sessions     = $sessions;
+		$this->validation   = $validation;
 		$this->capabilities = $capabilities;
 		$this->trace_analyzer = $trace_analyzer;
 	}
@@ -112,6 +121,8 @@ final class DashboardPage {
 		add_action( 'wp_ajax_nopriv_pcd_run_scan_worker', array( $this, 'ajax_run_scan_worker' ) );
 		add_action( 'wp_ajax_pcd_start_diagnostic_session', array( $this, 'ajax_start_diagnostic_session' ) );
 		add_action( 'wp_ajax_pcd_end_diagnostic_session', array( $this, 'ajax_end_diagnostic_session' ) );
+		add_action( 'wp_ajax_pcd_start_validation_mode', array( $this, 'ajax_start_validation_mode' ) );
+		add_action( 'wp_ajax_pcd_end_validation_mode', array( $this, 'ajax_end_validation_mode' ) );
 		add_action( self::ASYNC_SCAN_HOOK, array( $this, 'run_background_scan' ), 10, 1 );
 	}
 
@@ -250,6 +261,51 @@ final class DashboardPage {
 
 		$session = $this->sessions->end( 'completed' );
 		wp_send_json_success( $session );
+	}
+
+	/**
+	 * AJAX endpoint for starting focused validation mode.
+	 *
+	 * @return void
+	 */
+	public function ajax_start_validation_mode(): void {
+		if ( ! $this->capabilities->can_manage() ) {
+			wp_send_json_error( array( 'message' => __( 'You are not allowed to manage validation mode.', 'plugin-conflict-debugger' ) ), 403 );
+		}
+
+		check_ajax_referer( 'pcd_scan_ajax', 'nonce' );
+
+		$target_type  = sanitize_key( (string) ( $_POST['target_type'] ?? 'plugin_pair' ) );
+		$target_value = sanitize_text_field( (string) ( $_POST['target_value'] ?? '' ) );
+		$plugin_a     = sanitize_key( (string) ( $_POST['plugin_a'] ?? '' ) );
+		$plugin_b     = sanitize_key( (string) ( $_POST['plugin_b'] ?? '' ) );
+
+		$mode = $this->validation->start(
+			array(
+				'target_type'  => $target_type,
+				'target_value' => $target_value,
+				'plugin_a'     => $plugin_a,
+				'plugin_b'     => $plugin_b,
+			)
+		);
+
+		wp_send_json_success( $mode );
+	}
+
+	/**
+	 * AJAX endpoint for ending focused validation mode.
+	 *
+	 * @return void
+	 */
+	public function ajax_end_validation_mode(): void {
+		if ( ! $this->capabilities->can_manage() ) {
+			wp_send_json_error( array( 'message' => __( 'You are not allowed to manage validation mode.', 'plugin-conflict-debugger' ) ), 403 );
+		}
+
+		check_ajax_referer( 'pcd_scan_ajax', 'nonce' );
+
+		$mode = $this->validation->end( 'completed' );
+		wp_send_json_success( $mode );
 	}
 
 	/**
@@ -423,13 +479,20 @@ final class DashboardPage {
 		$active_session     = ! empty( $diagnostic_session['active'] ) && is_array( $diagnostic_session['active'] ) ? $diagnostic_session['active'] : $this->sessions->get_active();
 		$last_session       = ! empty( $diagnostic_session['last'] ) && is_array( $diagnostic_session['last'] ) ? $diagnostic_session['last'] : $this->sessions->get_last();
 		$session_contexts   = $this->sessions->get_supported_contexts();
+		$validation_mode    = $has_results && is_array( $results['validation_mode'] ?? null ) ? $results['validation_mode'] : array();
+		$active_validation  = ! empty( $validation_mode['active'] ) && is_array( $validation_mode['active'] ) ? $validation_mode['active'] : $this->validation->get_active();
+		$last_validation    = ! empty( $validation_mode['last'] ) && is_array( $validation_mode['last'] ) ? $validation_mode['last'] : $this->validation->get_last();
+		$validation_targets = $this->validation->get_supported_targets();
+		$validation_plugins = $this->build_validation_plugin_options( $results );
 		$plugin_drilldown  = $has_results ? $this->build_plugin_drilldown( $results ) : array();
 		$scan_comparison   = $has_results ? $this->build_scan_comparison( $results, $history ) : array();
-		$runtime_event_view = $has_results ? $this->build_runtime_event_view( $results, $findings, $active_session, $last_session ) : array(
+		$runtime_event_view = $has_results ? $this->build_runtime_event_view( $results, $findings, $active_session, $last_session, $active_validation, $last_validation ) : array(
 			'summary'         => array(),
 			'events'          => array(),
 			'finding_event_map' => array(),
 			'focus_label'     => '',
+			'validation_focus_label' => '',
+			'validation_matches' => 0,
 		);
 		$trace_snapshot    = $has_results && is_array( $results['trace_snapshot'] ?? null )
 			? $results['trace_snapshot']
@@ -552,6 +615,8 @@ final class DashboardPage {
 									<?php foreach ( $findings as $finding ) : ?>
 										<?php $finding_signature = $this->finding_signature( $finding ); ?>
 										<?php $linked_runtime_events = is_array( $finding_event_map[ $finding_signature ] ?? null ) ? $finding_event_map[ $finding_signature ] : array(); ?>
+										<?php $evidence_items = is_array( $finding['evidence_items'] ?? null ) ? $finding['evidence_items'] : array(); ?>
+										<?php $evidence_breakdown = is_array( $finding['evidence_strength_breakdown'] ?? null ) ? (array) $finding['evidence_strength_breakdown'] : array(); ?>
 										<tr>
 											<td>
 												<span class="pcd-status-badge pcd-status-<?php echo esc_attr( $finding['severity'] ?? 'info' ); ?>">
@@ -587,15 +652,14 @@ final class DashboardPage {
 												<?php if ( ! empty( $finding['evidence_strength_breakdown'] ) && is_array( $finding['evidence_strength_breakdown'] ) ) : ?>
 													<div class="pcd-actionability-note">
 														<?php
-														$breakdown = (array) $finding['evidence_strength_breakdown'];
 														echo esc_html(
 															sprintf(
 																/* translators: 1: strong proof count, 2: supporting count, 3: noise count, 4: runtime breakage count. */
 																__( 'Evidence breakdown: Strong proof %1$d, Supporting indicators %2$d, Noise %3$d, Runtime breakage %4$d.', 'plugin-conflict-debugger' ),
-																(int) ( $breakdown['strong_proof'] ?? 0 ),
-																(int) ( $breakdown['supporting'] ?? 0 ),
-																(int) ( $breakdown['noise'] ?? 0 ),
-																(int) ( $breakdown['runtime_breakage'] ?? 0 )
+																(int) ( $evidence_breakdown['strong_proof'] ?? 0 ),
+																(int) ( $evidence_breakdown['supporting'] ?? 0 ),
+																(int) ( $evidence_breakdown['noise'] ?? 0 ),
+																(int) ( $evidence_breakdown['runtime_breakage'] ?? 0 )
 															)
 														);
 														?>
@@ -652,7 +716,118 @@ final class DashboardPage {
 													</div>
 												<?php endif; ?>
 											</td>
-											<td><?php echo esc_html( (string) ( $finding['recommended_next_step'] ?? '' ) ); ?></td>
+											<td>
+												<div><?php echo esc_html( (string) ( $finding['recommended_next_step'] ?? '' ) ); ?></div>
+												<button
+													type="button"
+													class="button button-link pcd-finding-detail-toggle"
+													data-pcd-finding-toggle="<?php echo esc_attr( $finding_signature ); ?>"
+													data-pcd-open-label="<?php echo esc_attr__( 'View details', 'plugin-conflict-debugger' ); ?>"
+													data-pcd-close-label="<?php echo esc_attr__( 'Hide details', 'plugin-conflict-debugger' ); ?>"
+													aria-expanded="false"
+												>
+													<?php esc_html_e( 'View details', 'plugin-conflict-debugger' ); ?>
+												</button>
+											</td>
+										</tr>
+										<tr class="pcd-finding-detail-row" data-pcd-finding-detail-row="<?php echo esc_attr( $finding_signature ); ?>" hidden>
+											<td colspan="7">
+												<div class="pcd-finding-detail">
+													<div class="pcd-finding-detail-grid">
+														<div class="pcd-drilldown-stat">
+															<span class="pcd-summary-label"><?php esc_html_e( 'Finding Type', 'plugin-conflict-debugger' ); ?></span>
+															<strong class="pcd-summary-value-small"><?php echo esc_html( ucwords( str_replace( '_', ' ', (string) ( $finding['finding_type'] ?? $finding['category'] ?? __( 'Unknown', 'plugin-conflict-debugger' ) ) ) ) ); ?></strong>
+														</div>
+														<div class="pcd-drilldown-stat">
+															<span class="pcd-summary-label"><?php esc_html_e( 'Request Context', 'plugin-conflict-debugger' ); ?></span>
+															<strong class="pcd-summary-value-small"><?php echo esc_html( (string) ( $finding['request_context'] ?? __( 'Runtime', 'plugin-conflict-debugger' ) ) ); ?></strong>
+														</div>
+														<div class="pcd-drilldown-stat">
+															<span class="pcd-summary-label"><?php esc_html_e( 'Execution Surface', 'plugin-conflict-debugger' ); ?></span>
+															<strong class="pcd-summary-value-small"><?php echo esc_html( (string) ( $finding['execution_surface'] ?? __( 'Not captured', 'plugin-conflict-debugger' ) ) ); ?></strong>
+														</div>
+														<div class="pcd-drilldown-stat">
+															<span class="pcd-summary-label"><?php esc_html_e( 'Shared Resource', 'plugin-conflict-debugger' ); ?></span>
+															<strong class="pcd-summary-value-small"><?php echo esc_html( (string) ( $finding['shared_resource'] ?? __( 'Broad overlap only', 'plugin-conflict-debugger' ) ) ); ?></strong>
+														</div>
+													</div>
+
+													<div class="pcd-finding-detail-section">
+														<h4><?php esc_html_e( 'Why This Was Scored This Way', 'plugin-conflict-debugger' ); ?></h4>
+														<p><?php echo esc_html( (string) ( $finding['why_scored_this_way'] ?? '' ) ); ?></p>
+														<?php if ( ! empty( $finding['why_this_is_not_or_is_actionable'] ) ) : ?>
+															<p class="pcd-actionability-note"><?php echo esc_html( (string) $finding['why_this_is_not_or_is_actionable'] ); ?></p>
+														<?php endif; ?>
+													</div>
+
+													<div class="pcd-finding-detail-section">
+														<h4><?php esc_html_e( 'Evidence Strength', 'plugin-conflict-debugger' ); ?></h4>
+														<div class="pcd-finding-detail-grid">
+															<div class="pcd-drilldown-stat">
+																<span class="pcd-summary-label"><?php esc_html_e( 'Strong Proof', 'plugin-conflict-debugger' ); ?></span>
+																<strong class="pcd-summary-value-small"><?php echo esc_html( (string) ( $evidence_breakdown['strong_proof'] ?? 0 ) ); ?></strong>
+															</div>
+															<div class="pcd-drilldown-stat">
+																<span class="pcd-summary-label"><?php esc_html_e( 'Supporting', 'plugin-conflict-debugger' ); ?></span>
+																<strong class="pcd-summary-value-small"><?php echo esc_html( (string) ( $evidence_breakdown['supporting'] ?? 0 ) ); ?></strong>
+															</div>
+															<div class="pcd-drilldown-stat">
+																<span class="pcd-summary-label"><?php esc_html_e( 'Runtime Breakage', 'plugin-conflict-debugger' ); ?></span>
+																<strong class="pcd-summary-value-small"><?php echo esc_html( (string) ( $evidence_breakdown['runtime_breakage'] ?? 0 ) ); ?></strong>
+															</div>
+															<div class="pcd-drilldown-stat">
+																<span class="pcd-summary-label"><?php esc_html_e( 'Noise', 'plugin-conflict-debugger' ); ?></span>
+																<strong class="pcd-summary-value-small"><?php echo esc_html( (string) ( $evidence_breakdown['noise'] ?? 0 ) ); ?></strong>
+															</div>
+														</div>
+													</div>
+
+													<?php if ( ! empty( $evidence_items ) ) : ?>
+														<div class="pcd-finding-detail-section">
+															<h4><?php esc_html_e( 'Evidence Timeline', 'plugin-conflict-debugger' ); ?></h4>
+															<div class="pcd-finding-evidence-list">
+																<?php foreach ( $evidence_items as $evidence_item ) : ?>
+																	<article class="pcd-finding-evidence-item">
+																		<div class="pcd-plugin-finding-topline">
+																			<span class="pcd-status-badge pcd-status-info"><?php echo esc_html( $this->humanize_evidence_tier( (string) ( $evidence_item['tier'] ?? '' ) ) ); ?></span>
+																			<?php if ( ! empty( $evidence_item['request_context'] ) ) : ?>
+																				<span class="pcd-status-badge pcd-status-info"><?php echo esc_html( (string) $evidence_item['request_context'] ); ?></span>
+																			<?php endif; ?>
+																			<?php if ( ! empty( $evidence_item['execution_surface'] ) ) : ?>
+																				<span class="pcd-status-badge pcd-status-info"><?php echo esc_html( (string) $evidence_item['execution_surface'] ); ?></span>
+																			<?php endif; ?>
+																		</div>
+																		<p><?php echo esc_html( (string) ( $evidence_item['message'] ?? '' ) ); ?></p>
+																		<?php if ( ! empty( $evidence_item['shared_resource'] ) ) : ?>
+																			<p class="pcd-actionability-note"><?php echo esc_html( sprintf( __( 'Shared resource: %s', 'plugin-conflict-debugger' ), (string) $evidence_item['shared_resource'] ) ); ?></p>
+																		<?php endif; ?>
+																	</article>
+																<?php endforeach; ?>
+															</div>
+														</div>
+													<?php endif; ?>
+
+													<?php if ( ! empty( $linked_runtime_events ) ) : ?>
+														<div class="pcd-finding-detail-section">
+															<h4><?php esc_html_e( 'Matching Runtime Events', 'plugin-conflict-debugger' ); ?></h4>
+															<ul class="pcd-meta-list">
+																<?php foreach ( $linked_runtime_events as $runtime_link ) : ?>
+																	<li>
+																		<a
+																			href="<?php echo esc_url( '#' . (string) ( $runtime_link['id'] ?? '' ) ); ?>"
+																			class="pcd-runtime-event-link"
+																			data-pcd-open-tab="diagnostics"
+																			data-pcd-scroll-target="<?php echo esc_attr( '#' . (string) ( $runtime_link['id'] ?? '' ) ); ?>"
+																		>
+																			<?php echo esc_html( (string) ( $runtime_link['label'] ?? __( 'Runtime event', 'plugin-conflict-debugger' ) ) ); ?>
+																		</a>
+																	</li>
+																<?php endforeach; ?>
+															</ul>
+														</div>
+													<?php endif; ?>
+												</div>
+											</td>
 										</tr>
 									<?php endforeach; ?>
 								</tbody>
@@ -809,6 +984,87 @@ final class DashboardPage {
 									</ul>
 								<?php else : ?>
 									<p><?php esc_html_e( 'No focused diagnostic session is active right now.', 'plugin-conflict-debugger' ); ?></p>
+								<?php endif; ?>
+							</div>
+						</section>
+
+						<section class="pcd-panel">
+							<h2><?php esc_html_e( 'Validation Mode', 'plugin-conflict-debugger' ); ?></h2>
+							<p><?php esc_html_e( 'Use focused validation when a finding needs deeper proof. This mode narrows telemetry to one plugin pair, hook, asset handle, REST route, or AJAX action so you can move from suspicion to a cleaner trace.', 'plugin-conflict-debugger' ); ?></p>
+							<div class="pcd-session-controls pcd-validation-controls" data-pcd-validation-controls="true">
+								<label class="screen-reader-text" for="pcd-validation-target-type"><?php esc_html_e( 'Choose a validation target type', 'plugin-conflict-debugger' ); ?></label>
+								<select id="pcd-validation-target-type" class="pcd-plugin-select" data-pcd-validation-target-type="true" <?php disabled( ! empty( $active_validation ) ); ?>>
+									<?php foreach ( $validation_targets as $target_key => $target_label ) : ?>
+										<option value="<?php echo esc_attr( (string) $target_key ); ?>" <?php selected( (string) $target_key, (string) ( $active_validation['target_type'] ?? 'plugin_pair' ) ); ?>><?php echo esc_html( (string) $target_label ); ?></option>
+									<?php endforeach; ?>
+								</select>
+
+								<label class="screen-reader-text" for="pcd-validation-plugin-a"><?php esc_html_e( 'Primary plugin for validation mode', 'plugin-conflict-debugger' ); ?></label>
+								<select id="pcd-validation-plugin-a" class="pcd-plugin-select" data-pcd-validation-plugin-a="true" <?php disabled( ! empty( $active_validation ) ); ?>>
+									<option value=""><?php esc_html_e( 'Choose plugin A', 'plugin-conflict-debugger' ); ?></option>
+									<?php foreach ( $validation_plugins as $plugin_option ) : ?>
+										<option value="<?php echo esc_attr( (string) ( $plugin_option['slug'] ?? '' ) ); ?>" <?php selected( (string) ( $plugin_option['slug'] ?? '' ), (string) ( $active_validation['plugin_a'] ?? '' ) ); ?>><?php echo esc_html( (string) ( $plugin_option['label'] ?? '' ) ); ?></option>
+									<?php endforeach; ?>
+								</select>
+
+								<label class="screen-reader-text" for="pcd-validation-plugin-b"><?php esc_html_e( 'Secondary plugin for validation mode', 'plugin-conflict-debugger' ); ?></label>
+								<select id="pcd-validation-plugin-b" class="pcd-plugin-select" data-pcd-validation-plugin-b="true" <?php disabled( ! empty( $active_validation ) ); ?>>
+									<option value=""><?php esc_html_e( 'Choose plugin B (optional)', 'plugin-conflict-debugger' ); ?></option>
+									<?php foreach ( $validation_plugins as $plugin_option ) : ?>
+										<option value="<?php echo esc_attr( (string) ( $plugin_option['slug'] ?? '' ) ); ?>" <?php selected( (string) ( $plugin_option['slug'] ?? '' ), (string) ( $active_validation['plugin_b'] ?? '' ) ); ?>><?php echo esc_html( (string) ( $plugin_option['label'] ?? '' ) ); ?></option>
+									<?php endforeach; ?>
+								</select>
+
+								<label class="screen-reader-text" for="pcd-validation-target-value"><?php esc_html_e( 'Target value for validation mode', 'plugin-conflict-debugger' ); ?></label>
+								<input
+									id="pcd-validation-target-value"
+									type="text"
+									class="regular-text"
+									data-pcd-validation-target-value="true"
+									value="<?php echo esc_attr( (string) ( $active_validation['target_value'] ?? '' ) ); ?>"
+									placeholder="<?php esc_attr_e( 'Hook, handle, route, or action', 'plugin-conflict-debugger' ); ?>"
+									<?php disabled( ! empty( $active_validation ) ); ?>
+								/>
+
+								<button type="button" class="button button-primary" data-pcd-validation-start="true" <?php disabled( ! empty( $active_validation ) ); ?>><?php esc_html_e( 'Start Validation', 'plugin-conflict-debugger' ); ?></button>
+								<button type="button" class="button" data-pcd-validation-end="true" <?php disabled( empty( $active_validation ) ); ?>><?php esc_html_e( 'End Validation', 'plugin-conflict-debugger' ); ?></button>
+							</div>
+							<p class="pcd-summary-note"><?php esc_html_e( 'Tip: use plugin pair mode for a suspicious finding, or switch to hook/asset/route/action mode when you already know the exact surface to validate.', 'plugin-conflict-debugger' ); ?></p>
+							<div class="pcd-session-status" data-pcd-validation-status="true">
+								<?php if ( ! empty( $active_validation ) ) : ?>
+									<p>
+										<span class="pcd-status-badge pcd-status-warning"><?php esc_html_e( 'Active', 'plugin-conflict-debugger' ); ?></span>
+										<?php echo esc_html( (string) ( $active_validation['label'] ?? __( 'Focused validation', 'plugin-conflict-debugger' ) ) ); ?>
+									</p>
+									<ul class="pcd-meta-list">
+										<?php if ( ! empty( $active_validation['started_at'] ) ) : ?>
+											<li><?php echo esc_html( sprintf( __( 'Started: %s', 'plugin-conflict-debugger' ), Helpers::format_datetime( (string) $active_validation['started_at'] ) ) ); ?></li>
+										<?php endif; ?>
+										<?php if ( ! empty( $active_validation['last_activity_at'] ) ) : ?>
+											<li><?php echo esc_html( sprintf( __( 'Last matching trace: %s', 'plugin-conflict-debugger' ), Helpers::format_datetime( (string) $active_validation['last_activity_at'] ) ) ); ?></li>
+										<?php endif; ?>
+										<?php if ( ! empty( $active_validation['expires_at'] ) ) : ?>
+											<li><?php echo esc_html( sprintf( __( 'Expires: %s', 'plugin-conflict-debugger' ), Helpers::format_datetime( (string) $active_validation['expires_at'] ) ) ); ?></li>
+										<?php endif; ?>
+									</ul>
+								<?php elseif ( ! empty( $last_validation ) ) : ?>
+									<p>
+										<span class="pcd-status-badge pcd-status-info"><?php esc_html_e( 'Last Validation', 'plugin-conflict-debugger' ); ?></span>
+										<?php echo esc_html( (string) ( $last_validation['label'] ?? __( 'Focused validation', 'plugin-conflict-debugger' ) ) ); ?>
+									</p>
+									<ul class="pcd-meta-list">
+										<?php if ( ! empty( $last_validation['started_at'] ) ) : ?>
+											<li><?php echo esc_html( sprintf( __( 'Started: %s', 'plugin-conflict-debugger' ), Helpers::format_datetime( (string) $last_validation['started_at'] ) ) ); ?></li>
+										<?php endif; ?>
+										<?php if ( ! empty( $last_validation['ended_at'] ) ) : ?>
+											<li><?php echo esc_html( sprintf( __( 'Ended: %s', 'plugin-conflict-debugger' ), Helpers::format_datetime( (string) $last_validation['ended_at'] ) ) ); ?></li>
+										<?php endif; ?>
+										<?php if ( ! empty( $last_validation['status'] ) ) : ?>
+											<li><?php echo esc_html( sprintf( __( 'Status: %s', 'plugin-conflict-debugger' ), ucfirst( str_replace( '_', ' ', (string) $last_validation['status'] ) ) ) ); ?></li>
+										<?php endif; ?>
+									</ul>
+								<?php else : ?>
+									<p><?php esc_html_e( 'No focused validation mode is active right now.', 'plugin-conflict-debugger' ); ?></p>
 								<?php endif; ?>
 							</div>
 						</section>
@@ -1026,6 +1282,20 @@ final class DashboardPage {
 										?>
 									</p>
 								<?php endif; ?>
+								<?php if ( ! empty( $runtime_event_view['validation_focus_label'] ) ) : ?>
+									<p class="pcd-summary-note">
+										<?php
+										echo esc_html(
+											sprintf(
+												/* translators: 1: validation label, 2: event count. */
+												__( 'Showing events matched to the current validation mode: %1$s (%2$d matching traces).', 'plugin-conflict-debugger' ),
+												(string) $runtime_event_view['validation_focus_label'],
+												(int) ( $runtime_event_view['validation_matches'] ?? 0 )
+											)
+										);
+										?>
+									</p>
+								<?php endif; ?>
 								<div class="pcd-runtime-summary-grid">
 									<div class="pcd-drilldown-stat">
 										<span class="pcd-summary-label"><?php esc_html_e( 'Captured Events', 'plugin-conflict-debugger' ); ?></span>
@@ -1054,6 +1324,9 @@ final class DashboardPage {
 													</span>
 													<?php if ( ! empty( $runtime_event['request_context'] ) ) : ?>
 														<span class="pcd-status-badge pcd-status-info"><?php echo esc_html( (string) $runtime_event['request_context'] ); ?></span>
+													<?php endif; ?>
+													<?php if ( ! empty( $runtime_event['validation_matched'] ) ) : ?>
+														<span class="pcd-status-badge pcd-status-warning"><?php esc_html_e( 'Validation Match', 'plugin-conflict-debugger' ); ?></span>
 													<?php endif; ?>
 												</div>
 												<?php if ( ! empty( $runtime_event['timestamp'] ) ) : ?>
@@ -1097,6 +1370,9 @@ final class DashboardPage {
 														<?php endif; ?>
 														<?php if ( ! empty( $runtime_event['evidence_source'] ) ) : ?>
 															<li><?php echo esc_html( sprintf( __( 'Evidence source: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['evidence_source'] ) ); ?></li>
+														<?php endif; ?>
+														<?php if ( ! empty( $runtime_event['validation_label'] ) ) : ?>
+															<li><?php echo esc_html( sprintf( __( 'Validation mode: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['validation_label'] ) ); ?></li>
 														<?php endif; ?>
 														<?php if ( ! empty( $runtime_event['failure_mode'] ) ) : ?>
 															<li><?php echo esc_html( sprintf( __( 'Failure mode: %s', 'plugin-conflict-debugger' ), (string) $runtime_event['failure_mode'] ) ); ?></li>
@@ -1274,6 +1550,38 @@ final class DashboardPage {
 	}
 
 	/**
+	 * Builds plugin options for validation mode selectors.
+	 *
+	 * @param array<string, mixed> $results Latest scan results.
+	 * @return array<int, array<string, string>>
+	 */
+	private function build_validation_plugin_options( array $results ): array {
+		$plugins = is_array( $results['plugins'] ?? null ) ? $results['plugins'] : array();
+		$options = array();
+
+		foreach ( $plugins as $plugin ) {
+			$slug = sanitize_key( (string) ( $plugin['slug'] ?? '' ) );
+			$name = sanitize_text_field( (string) ( $plugin['name'] ?? '' ) );
+
+			if ( '' === $slug || '' === $name ) {
+				continue;
+			}
+
+			$options[ $slug ] = array(
+				'slug'  => $slug,
+				'label' => $name,
+			);
+		}
+
+		uasort(
+			$options,
+			static fn( array $left, array $right ): int => strcasecmp( (string) ( $left['label'] ?? '' ), (string) ( $right['label'] ?? '' ) )
+		);
+
+		return array_values( $options );
+	}
+
+	/**
 	 * Builds per-plugin drilldown data from the latest scan.
 	 *
 	 * @param array<string, mixed> $results Latest scan results.
@@ -1425,13 +1733,18 @@ final class DashboardPage {
 	 * @param array<int, array<string, mixed>> $findings Latest findings.
 	 * @param array<string, mixed>              $active_session Active diagnostic session.
 	 * @param array<string, mixed>              $last_session Last diagnostic session.
+	 * @param array<string, mixed>              $active_validation Active validation mode.
+	 * @param array<string, mixed>              $last_validation Last validation mode.
 	 * @return array<string, mixed>
 	 */
-	private function build_runtime_event_view( array $results, array $findings, array $active_session = array(), array $last_session = array() ): array {
+	private function build_runtime_event_view( array $results, array $findings, array $active_session = array(), array $last_session = array(), array $active_validation = array(), array $last_validation = array() ): array {
 		$runtime_events      = is_array( $results['runtime_events'] ?? null ) ? $results['runtime_events'] : array();
 		$focus_session       = ! empty( $active_session['id'] ) ? $active_session : $last_session;
 		$focus_session_id    = sanitize_text_field( (string) ( $focus_session['id'] ?? '' ) );
+		$focus_validation    = ! empty( $active_validation['id'] ) ? $active_validation : $last_validation;
+		$focus_validation_id = sanitize_text_field( (string) ( $focus_validation['id'] ?? '' ) );
 		$focused_events_only = array();
+		$validation_events   = array();
 		$finding_event_map  = array();
 		$annotated_events   = array();
 		$summary            = array(
@@ -1439,6 +1752,7 @@ final class DashboardPage {
 			'js_errors'       => 0,
 			'failed_requests' => 0,
 			'mutations'       => 0,
+			'validation_matches' => 0,
 		);
 
 		if ( '' !== $focus_session_id ) {
@@ -1451,6 +1765,21 @@ final class DashboardPage {
 
 		if ( ! empty( $focused_events_only ) ) {
 			$runtime_events = $focused_events_only;
+		}
+
+		if ( '' !== $focus_validation_id ) {
+			foreach ( $runtime_events as $runtime_event ) {
+				if (
+					$focus_validation_id === sanitize_text_field( (string) ( $runtime_event['validation_mode_id'] ?? '' ) ) &&
+					! empty( $runtime_event['validation_matched'] )
+				) {
+					$validation_events[] = $runtime_event;
+				}
+			}
+		}
+
+		if ( ! empty( $validation_events ) ) {
+			$runtime_events = $validation_events;
 		}
 
 		foreach ( array_slice( $runtime_events, 0, 18 ) as $index => $runtime_event ) {
@@ -1514,6 +1843,10 @@ final class DashboardPage {
 				$summary['mutations']++;
 			}
 
+			if ( ! empty( $runtime_event['validation_matched'] ) ) {
+				$summary['validation_matches']++;
+			}
+
 			$annotated_events[] = array(
 				'id'               => $event_id,
 				'timestamp'        => sanitize_text_field( (string) ( $runtime_event['timestamp'] ?? '' ) ),
@@ -1545,6 +1878,8 @@ final class DashboardPage {
 					)
 				),
 				'owner_labels'     => array_values( array_unique( array_filter( $owner_labels ) ) ),
+				'validation_label' => sanitize_text_field( (string) ( $runtime_event['validation_label'] ?? '' ) ),
+				'validation_matched' => ! empty( $runtime_event['validation_matched'] ),
 				'state_changes'    => $this->summarize_state_delta(
 					is_array( $runtime_event['previous_state'] ?? null ) ? $runtime_event['previous_state'] : array(),
 					is_array( $runtime_event['new_state'] ?? null ) ? $runtime_event['new_state'] : array()
@@ -1560,6 +1895,8 @@ final class DashboardPage {
 			'events'            => $annotated_events,
 			'finding_event_map' => $finding_event_map,
 			'focus_label'       => ! empty( $focused_events_only ) ? sanitize_text_field( (string) ( $focus_session['label'] ?? '' ) ) : '',
+			'validation_focus_label' => ! empty( $validation_events ) ? sanitize_text_field( (string) ( $focus_validation['label'] ?? '' ) ) : '',
+			'validation_matches' => (int) ( $summary['validation_matches'] ?? 0 ),
 		);
 	}
 
@@ -1781,6 +2118,29 @@ final class DashboardPage {
 		}
 
 		return ucwords( str_replace( array( '-', '_' ), ' ', $token ) );
+	}
+
+	/**
+	 * Humanizes an evidence tier for the finding detail UI.
+	 *
+	 * @param string $tier Evidence tier.
+	 * @return string
+	 */
+	private function humanize_evidence_tier( string $tier ): string {
+		$tier = sanitize_key( $tier );
+		if ( '' === $tier ) {
+			return __( 'Supporting', 'plugin-conflict-debugger' );
+		}
+
+		$labels = array(
+			'noise'            => __( 'Noise', 'plugin-conflict-debugger' ),
+			'weak'             => __( 'Weak overlap', 'plugin-conflict-debugger' ),
+			'supporting'       => __( 'Supporting', 'plugin-conflict-debugger' ),
+			'strong_proof'     => __( 'Strong proof', 'plugin-conflict-debugger' ),
+			'runtime_breakage' => __( 'Runtime breakage', 'plugin-conflict-debugger' ),
+		);
+
+		return $labels[ $tier ] ?? ucwords( str_replace( '_', ' ', $tier ) );
 	}
 
 	/**

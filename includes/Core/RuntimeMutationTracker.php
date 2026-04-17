@@ -37,6 +37,13 @@ final class RuntimeMutationTracker {
 	private DiagnosticSessionRepository $sessions;
 
 	/**
+	 * Validation mode repository.
+	 *
+	 * @var ValidationModeRepository
+	 */
+	private ValidationModeRepository $validation;
+
+	/**
 	 * Last captured callback snapshots per hook.
 	 *
 	 * @var array<string, array<string, mixed>>
@@ -77,9 +84,10 @@ final class RuntimeMutationTracker {
 	 * @param RuntimeTelemetryRepository  $repository Telemetry repository.
 	 * @param DiagnosticSessionRepository $sessions Session repository.
 	 */
-	public function __construct( RuntimeTelemetryRepository $repository, DiagnosticSessionRepository $sessions ) {
+	public function __construct( RuntimeTelemetryRepository $repository, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation ) {
 		$this->repository = $repository;
 		$this->sessions   = $sessions;
+		$this->validation = $validation;
 	}
 
 	/**
@@ -562,11 +570,13 @@ final class RuntimeMutationTracker {
 
 		$this->emitted[ $fingerprint ] = true;
 		$this->repository->record_event(
-			array_merge(
-				array(
-					'timestamp' => current_time( 'mysql' ),
-				),
-				$event
+			$this->validation->decorate_event(
+				array_merge(
+					array(
+						'timestamp' => current_time( 'mysql' ),
+					),
+					$event
+				)
 			)
 		);
 	}

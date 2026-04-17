@@ -26,6 +26,7 @@ use PluginConflictDebugger\Core\RuntimeTelemetryRepository;
 use PluginConflictDebugger\Core\RuntimeMutationTracker;
 use PluginConflictDebugger\Core\ScanStateRepository;
 use PluginConflictDebugger\Core\Scanner;
+use PluginConflictDebugger\Core\ValidationModeRepository;
 use PluginConflictDebugger\Pro\ProPlaceholder;
 use PluginConflictDebugger\Support\Capabilities;
 use PluginConflictDebugger\Support\Logger;
@@ -49,21 +50,22 @@ final class Plugin {
 		$telemetry    = new RuntimeTelemetryRepository();
 		$scan_state   = new ScanStateRepository();
 		$sessions     = new DiagnosticSessionRepository();
+		$validation   = new ValidationModeRepository();
 		$registry     = new RegistrySnapshot();
 		$logger       = new Logger();
 		$tracker      = new PluginChangeTracker();
 		$environment  = new Environment();
 		$traces       = new TraceAnalyzer();
-		$collector    = new ErrorCollector( $logger, $telemetry, $sessions );
+		$collector    = new ErrorCollector( $logger, $telemetry, $sessions, $validation );
 		$heuristics   = new Heuristics();
 		$detector     = new ConflictDetector( $heuristics, $registry );
-		$scanner      = new Scanner( $environment, $collector, $detector, $repository, $tracker, $traces );
-		$runtime      = new RuntimeTelemetry( $telemetry, $registry, $sessions );
-		$asset_tracer = new AssetLifecycleTracer( $telemetry, $registry, $sessions );
-		$mutations    = new RuntimeMutationTracker( $telemetry, $sessions );
+		$scanner      = new Scanner( $environment, $collector, $detector, $repository, $tracker, $traces, $validation );
+		$runtime      = new RuntimeTelemetry( $telemetry, $registry, $sessions, $validation );
+		$asset_tracer = new AssetLifecycleTracer( $telemetry, $registry, $sessions, $validation );
+		$mutations    = new RuntimeMutationTracker( $telemetry, $sessions, $validation );
 
 		$assets       = new Assets();
-		$dashboard    = new DashboardPage( $scanner, $repository, $scan_state, $sessions, $capabilities, $traces );
+		$dashboard    = new DashboardPage( $scanner, $repository, $scan_state, $sessions, $validation, $capabilities, $traces );
 		$notices      = new Notices( $repository, $capabilities );
 		$pro_features = new ProPlaceholder();
 

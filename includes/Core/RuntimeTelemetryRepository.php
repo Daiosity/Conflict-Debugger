@@ -164,6 +164,11 @@ final class RuntimeTelemetryRepository {
 			'target_owner_slug'    => sanitize_key( (string) ( $event['target_owner_slug'] ?? '' ) ),
 			'status_code'          => (int) ( $event['status_code'] ?? 0 ),
 			'session_id'           => sanitize_text_field( (string) ( $event['session_id'] ?? '' ) ),
+			'validation_mode_id'   => sanitize_text_field( (string) ( $event['validation_mode_id'] ?? '' ) ),
+			'validation_target_type' => sanitize_key( (string) ( $event['validation_target_type'] ?? '' ) ),
+			'validation_target_value' => sanitize_text_field( (string) ( $event['validation_target_value'] ?? '' ) ),
+			'validation_label'     => sanitize_text_field( (string) ( $event['validation_label'] ?? '' ) ),
+			'validation_matched'   => ! empty( $event['validation_matched'] ),
 			'resource_hints'       => $this->sanitize_resource_hints( $event['resource_hints'] ?? array() ),
 			'owner_slugs'          => $this->sanitize_resource_hints( $event['owner_slugs'] ?? array() ),
 			'previous_state'       => TraceEvent::sanitize_state( $event['previous_state'] ?? array() ),
@@ -190,6 +195,11 @@ final class RuntimeTelemetryRepository {
 			'rest_route'      => sanitize_text_field( (string) ( $context['rest_route'] ?? '' ) ),
 			'resource'        => sanitize_text_field( (string) ( $context['resource'] ?? '' ) ),
 			'session_id'      => sanitize_text_field( (string) ( $context['session_id'] ?? '' ) ),
+			'validation_mode_id' => sanitize_text_field( (string) ( $context['validation_mode_id'] ?? '' ) ),
+			'validation_target_type' => sanitize_key( (string) ( $context['validation_target_type'] ?? '' ) ),
+			'validation_target_value' => sanitize_text_field( (string) ( $context['validation_target_value'] ?? '' ) ),
+			'validation_label' => sanitize_text_field( (string) ( $context['validation_label'] ?? '' ) ),
+			'validation_matched' => ! empty( $context['validation_matched'] ),
 			'resource_hints'  => $this->sanitize_resource_hints( $context['resource_hints'] ?? array() ),
 		);
 	}
@@ -216,6 +226,8 @@ final class RuntimeTelemetryRepository {
 					'mutation_kind'     => (string) ( $payload['mutation_kind'] ?? '' ),
 					'actor_slug'        => (string) ( $payload['actor_slug'] ?? '' ),
 					'target_owner_slug' => (string) ( $payload['target_owner_slug'] ?? '' ),
+					'validation_mode_id'=> (string) ( $payload['validation_mode_id'] ?? '' ),
+					'validation_matched'=> ! empty( $payload['validation_matched'] ),
 					'resource_hints'    => implode( ',', (array) ( $payload['resource_hints'] ?? array() ) ),
 				)
 			)

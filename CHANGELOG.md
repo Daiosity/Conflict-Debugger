@@ -2,6 +2,12 @@
 
 All notable changes to `Plugin Conflict Debugger` are tracked here.
 
+## 1.1.0
+
+- Added focused validation mode controls so a developer can narrow telemetry to one plugin pair, hook, asset handle, REST route, or AJAX action before rerunning a scan.
+- Added finding detail drilldowns with evidence strength, scoring rationale, concrete resource/context metadata, and direct links to matching runtime events.
+- Added detector fixtures for noisy admin overlap, asset lifecycle mutation, callback removal, REST route collision, and AJAX action collision regression checks.
+
 ## 1.0.27
 
 - Added a causal trace-event foundation with per-request IDs, request scopes, attribution status, mutation status, and before/after state payloads so runtime evidence can be tied back to one concrete execution path.

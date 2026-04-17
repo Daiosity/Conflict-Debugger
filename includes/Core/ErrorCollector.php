@@ -38,15 +38,23 @@ final class ErrorCollector {
 	private DiagnosticSessionRepository $sessions;
 
 	/**
+	 * Validation mode repository.
+	 *
+	 * @var ValidationModeRepository
+	 */
+	private ValidationModeRepository $validation;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Logger                     $logger Runtime logger.
 	 * @param RuntimeTelemetryRepository $telemetry Telemetry repository.
 	 */
-	public function __construct( Logger $logger, RuntimeTelemetryRepository $telemetry, DiagnosticSessionRepository $sessions ) {
+	public function __construct( Logger $logger, RuntimeTelemetryRepository $telemetry, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation ) {
 		$this->logger    = $logger;
 		$this->telemetry = $telemetry;
 		$this->sessions  = $sessions;
+		$this->validation = $validation;
 	}
 
 	/**
@@ -66,6 +74,10 @@ final class ErrorCollector {
 			'diagnostic_session' => array(
 				'active' => $this->sessions->get_active(),
 				'last'   => $this->sessions->get_last(),
+			),
+			'validation_mode'   => array(
+				'active' => $this->validation->get_active(),
+				'last'   => $this->validation->get_last(),
 			),
 			'log_access'       => $this->build_log_access_report(),
 		);
@@ -137,6 +149,11 @@ final class ErrorCollector {
 				'target_owner_slug'    => (string) ( $event['target_owner_slug'] ?? '' ),
 				'status_code'          => (int) ( $event['status_code'] ?? 0 ),
 				'session_id'           => (string) ( $event['session_id'] ?? '' ),
+				'validation_mode_id'   => (string) ( $event['validation_mode_id'] ?? '' ),
+				'validation_target_type' => (string) ( $event['validation_target_type'] ?? '' ),
+				'validation_target_value' => (string) ( $event['validation_target_value'] ?? '' ),
+				'validation_label'     => (string) ( $event['validation_label'] ?? '' ),
+				'validation_matched'   => ! empty( $event['validation_matched'] ),
 				'resource_hints'       => is_array( $event['resource_hints'] ?? null ) ? $event['resource_hints'] : array(),
 				'owner_slugs'          => is_array( $event['owner_slugs'] ?? null ) ? $event['owner_slugs'] : array(),
 				'previous_state'       => is_array( $event['previous_state'] ?? null ) ? $event['previous_state'] : array(),

@@ -60,6 +60,13 @@ final class Scanner {
 	private TraceAnalyzer $trace_analyzer;
 
 	/**
+	 * Validation mode repository.
+	 *
+	 * @var ValidationModeRepository
+	 */
+	private ValidationModeRepository $validation;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Environment       $environment Environment service.
@@ -67,13 +74,14 @@ final class Scanner {
 	 * @param ConflictDetector  $detector Conflict detector.
 	 * @param ResultsRepository $repository Results repository.
 	 */
-	public function __construct( Environment $environment, ErrorCollector $error_collector, ConflictDetector $detector, ResultsRepository $repository, PluginChangeTracker $change_tracker, TraceAnalyzer $trace_analyzer ) {
+	public function __construct( Environment $environment, ErrorCollector $error_collector, ConflictDetector $detector, ResultsRepository $repository, PluginChangeTracker $change_tracker, TraceAnalyzer $trace_analyzer, ValidationModeRepository $validation ) {
 		$this->environment     = $environment;
 		$this->error_collector = $error_collector;
 		$this->detector        = $detector;
 		$this->repository      = $repository;
 		$this->change_tracker  = $change_tracker;
 		$this->trace_analyzer  = $trace_analyzer;
+		$this->validation      = $validation;
 	}
 
 	/**
@@ -122,6 +130,10 @@ final class Scanner {
 			'request_contexts' => $error_signals['request_contexts'] ?? array(),
 			'runtime_events' => $error_signals['runtime_events'] ?? array(),
 			'diagnostic_session' => $error_signals['diagnostic_session'] ?? array(),
+			'validation_mode' => $error_signals['validation_mode'] ?? array(
+				'active' => $this->validation->get_active(),
+				'last'   => $this->validation->get_last(),
+			),
 			'log_access'     => $error_signals['log_access'] ?? array(),
 			'analysis_notes' => array(
 				'logs_unavailable' => ! empty( $error_signals['logs_unavailable'] ),

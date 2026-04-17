@@ -61,10 +61,12 @@ That means the detector does **not** treat common WordPress behavior as proof of
 
 - WordPress-native admin screen
 - findings tab
+- finding detail drilldowns with evidence strength and linked runtime traces
 - diagnostics tab
 - plugin-focused drilldown tab
 - runtime events viewer
 - focused diagnostic session workflow for reproducing one issue path at a time
+- focused validation mode for one plugin pair, hook, asset handle, REST route, or AJAX action
 
 ## Screenshots
 
@@ -146,6 +148,18 @@ Release outputs:
 - `plugin-conflict-debugger.zip`
 
 The workflow can be triggered manually or from version tags, which makes the repository easier to maintain and present professionally.
+
+## Regression Fixtures
+
+Detector regression fixtures live in [`tests/fixtures/`](./tests/fixtures/). They provide small WordPress plugins for:
+
+- normal admin overlap that should stay low/shared-surface
+- asset lifecycle mutation
+- callback removal
+- REST route collision
+- AJAX action collision
+
+These fixtures are meant to keep detector trust high as the heuristics and tracing layers evolve.
 
 ## Repository Structure
 

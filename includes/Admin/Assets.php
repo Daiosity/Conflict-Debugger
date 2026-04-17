@@ -64,6 +64,8 @@ final class Assets {
 					'running'      => __( 'Scan is running in the background.', 'plugin-conflict-debugger' ),
 					'queued'       => __( 'Scan queued. Waiting for worker...', 'plugin-conflict-debugger' ),
 					'runScan'      => __( 'Run Scan', 'plugin-conflict-debugger' ),
+					'validationPairRequired'   => __( 'Choose at least one plugin before starting pair validation.', 'plugin-conflict-debugger' ),
+					'validationTargetRequired' => __( 'Enter the hook, asset handle, route, or action you want to validate.', 'plugin-conflict-debugger' ),
 				),
 			)
 		);

@@ -12,6 +12,13 @@ document.addEventListener('DOMContentLoaded', function () {
 	const sessionContextSelect = document.querySelector('[data-pcd-session-context="true"]');
 	const sessionStartButton = document.querySelector('[data-pcd-session-start="true"]');
 	const sessionEndButton = document.querySelector('[data-pcd-session-end="true"]');
+	const validationTargetType = document.querySelector('[data-pcd-validation-target-type="true"]');
+	const validationPluginA = document.querySelector('[data-pcd-validation-plugin-a="true"]');
+	const validationPluginB = document.querySelector('[data-pcd-validation-plugin-b="true"]');
+	const validationTargetValue = document.querySelector('[data-pcd-validation-target-value="true"]');
+	const validationStartButton = document.querySelector('[data-pcd-validation-start="true"]');
+	const validationEndButton = document.querySelector('[data-pcd-validation-end="true"]');
+	const findingDetailButtons = Array.from(document.querySelectorAll('[data-pcd-finding-toggle]'));
 	let pollHandle = null;
 	let localBusy = false;
 	const defaultLabel = scanButton ? (scanButton.dataset.pcdDefaultLabel || pcdAdmin.i18n.runScan || 'Run Scan') : 'Run Scan';
@@ -141,6 +148,46 @@ document.addEventListener('DOMContentLoaded', function () {
 		}
 	}
 
+	function updateValidationButtons(isActive) {
+		if (validationStartButton) {
+			validationStartButton.disabled = !!isActive;
+		}
+		if (validationEndButton) {
+			validationEndButton.disabled = !isActive;
+		}
+		if (validationTargetType) {
+			validationTargetType.disabled = !!isActive;
+		}
+		if (validationPluginA) {
+			validationPluginA.disabled = !!isActive;
+		}
+		if (validationPluginB) {
+			validationPluginB.disabled = !!isActive;
+		}
+	}
+
+	function updateValidationFieldState() {
+		if (!validationTargetType || !validationTargetValue) {
+			return;
+		}
+
+		const requiresTargetValue = validationTargetType.value !== 'plugin_pair';
+		const placeholders = {
+			plugin_pair: '',
+			hook: 'template_redirect',
+			asset_handle: 'zipwp-images-style',
+			rest_route: 'wc/store/v1/cart',
+			ajax_action: 'xoo_wsc_refresh_fragments',
+		};
+
+		validationTargetValue.disabled = !!validationTargetType.disabled || !requiresTargetValue;
+		validationTargetValue.placeholder = placeholders[validationTargetType.value] || 'Hook, handle, route, or action';
+
+		if (!requiresTargetValue) {
+			validationTargetValue.value = '';
+		}
+	}
+
 	function sessionRequest(action, extraFields) {
 		const formData = new FormData();
 		formData.append('action', action);
@@ -197,6 +244,86 @@ document.addEventListener('DOMContentLoaded', function () {
 	if (sessionStartButton || sessionEndButton) {
 		updateSessionButtons(sessionEndButton ? !sessionEndButton.disabled : false);
 	}
+
+	if (validationTargetType) {
+		validationTargetType.addEventListener('change', updateValidationFieldState);
+		updateValidationFieldState();
+	}
+
+	if (validationStartButton) {
+		validationStartButton.addEventListener('click', function () {
+			const payload = {
+				target_type: validationTargetType ? validationTargetType.value : 'plugin_pair',
+				target_value: validationTargetValue ? validationTargetValue.value.trim() : '',
+				plugin_a: validationPluginA ? validationPluginA.value : '',
+				plugin_b: validationPluginB ? validationPluginB.value : '',
+			};
+
+			if (payload.target_type === 'plugin_pair' && !payload.plugin_a && !payload.plugin_b) {
+				window.alert(pcdAdmin.i18n.validationPairRequired || pcdAdmin.i18n.error);
+				return;
+			}
+
+			if (payload.target_type !== 'plugin_pair' && !payload.target_value) {
+				window.alert(pcdAdmin.i18n.validationTargetRequired || pcdAdmin.i18n.error);
+				return;
+			}
+
+			updateValidationButtons(true);
+			updateValidationFieldState();
+
+			sessionRequest('pcd_start_validation_mode', payload).then(function () {
+				window.sessionStorage.setItem(activeTabKey, 'diagnostics');
+				window.location.reload();
+			}).catch(function () {
+				updateValidationButtons(false);
+				updateValidationFieldState();
+			});
+		});
+	}
+
+	if (validationEndButton) {
+		validationEndButton.addEventListener('click', function () {
+			updateValidationButtons(false);
+			updateValidationFieldState();
+
+			sessionRequest('pcd_end_validation_mode', {}).then(function () {
+				window.sessionStorage.setItem(activeTabKey, 'diagnostics');
+				window.location.reload();
+			}).catch(function () {
+				updateValidationButtons(true);
+				updateValidationFieldState();
+			});
+		});
+	}
+
+	if (validationStartButton || validationEndButton) {
+		updateValidationButtons(validationEndButton ? !validationEndButton.disabled : false);
+		updateValidationFieldState();
+	}
+
+	findingDetailButtons.forEach(function (button) {
+		button.addEventListener('click', function () {
+			const signature = button.dataset.pcdFindingToggle;
+			if (!signature) {
+				return;
+			}
+
+			const detailRow = document.querySelector('[data-pcd-finding-detail-row="' + signature + '"]');
+			if (!detailRow) {
+				return;
+			}
+
+			const isExpanded = button.getAttribute('aria-expanded') === 'true';
+			const nextExpanded = !isExpanded;
+			const openLabel = button.dataset.pcdOpenLabel || 'View details';
+			const closeLabel = button.dataset.pcdCloseLabel || 'Hide details';
+
+			detailRow.hidden = !nextExpanded;
+			button.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+			button.textContent = nextExpanded ? closeLabel : openLabel;
+		});
+	});
 
 	function updateProgress(state) {
 		if (!scanStatusWrap || !scanStatusText || !scanProgress || !scanProgressLabel) {

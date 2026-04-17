@@ -42,6 +42,13 @@ final class AssetLifecycleTracer {
 	private DiagnosticSessionRepository $sessions;
 
 	/**
+	 * Validation mode repository.
+	 *
+	 * @var ValidationModeRepository
+	 */
+	private ValidationModeRepository $validation;
+
+	/**
 	 * Last captured snapshot for the request.
 	 *
 	 * @var array<string, mixed>
@@ -78,10 +85,11 @@ final class AssetLifecycleTracer {
 	 * @param RegistrySnapshot             $registry Registry snapshot collector.
 	 * @param DiagnosticSessionRepository  $sessions Session repository.
 	 */
-	public function __construct( RuntimeTelemetryRepository $repository, RegistrySnapshot $registry, DiagnosticSessionRepository $sessions ) {
+	public function __construct( RuntimeTelemetryRepository $repository, RegistrySnapshot $registry, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation ) {
 		$this->repository = $repository;
 		$this->registry   = $registry;
 		$this->sessions   = $sessions;
+		$this->validation = $validation;
 	}
 
 	/**
@@ -324,7 +332,8 @@ final class AssetLifecycleTracer {
 		);
 
 		$this->repository->record_event(
-			array(
+			$this->validation->decorate_event(
+				array(
 				'event_id'             => TraceEvent::new_event_id(),
 				'request_id'           => (string) ( $meta['request_id'] ?? TraceEvent::current_request_id() ),
 				'sequence'             => TraceEvent::next_sequence(),
@@ -355,6 +364,7 @@ final class AssetLifecycleTracer {
 				'previous_state'       => TraceEvent::sanitize_state( $previous_state ),
 				'new_state'            => TraceEvent::sanitize_state( $current_state ),
 				'session_id'           => (string) ( $meta['session_id'] ?? '' ),
+				)
 			)
 		);
 	}

@@ -4,7 +4,7 @@ Tags: diagnostics, debugging, plugins, conflicts, health
 Requires at least: 6.2
 Tested up to: 6.5
 Requires PHP: 8.1
-Stable tag: 1.0.28
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -19,7 +19,9 @@ The free/core foundation includes:
 * A clean WordPress-native dashboard under Tools
 * Manual scans of active plugins, environment context, and available error signals
 * Diagnostic session trace comparison for reproduced issue paths
+* Focused validation mode for one plugin pair, hook, asset handle, REST route, or AJAX action
 * Confidence-based conflict findings instead of fake certainty
+* Finding detail views with evidence strength, runtime links, and scoring rationale
 * Summary cards for active plugins, error signals, likely conflicts, and recent plugin changes
 * Practical next-step recommendations for staging-first troubleshooting
 
@@ -47,6 +49,11 @@ No. If `debug.log` is unavailable, the plugin degrades gracefully and explains t
 The current architecture is prepared for safe test mode, binary-search auto-isolation, scheduled scans, alerts, and staging-only advanced diagnostics.
 
 == Changelog ==
+
+= 1.1.0 =
+- Added focused validation mode controls so developers can narrow telemetry to one plugin pair, hook, asset handle, REST route, or AJAX action before rerunning a scan.
+- Added finding detail drilldowns with evidence strength, scoring rationale, resource/context metadata, and direct links to matching runtime events.
+- Added detector fixtures for known noisy admin overlap, asset lifecycle mutation, callback removal, REST route collision, and AJAX action collision regression testing.
 
 = 1.0.28 =
 - Added a root task list so the next diagnostics milestones are tracked directly in the repository.
