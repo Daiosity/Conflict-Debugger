@@ -229,7 +229,7 @@ final class RuntimeTelemetry {
 					'level'                => $status_code >= 500 ? 'server-error' : 'client-error',
 					'message'              => sprintf(
 						/* translators: %d status code. */
-						__( 'Observed HTTP response %d during request execution.', 'conflict-debugger' ),
+						__( 'Observed HTTP response %d during request execution.', 'daiosity-conflict-debugger' ),
 						$status_code
 					),
 					'request_context'      => (string) ( $context['request_context'] ?? '' ),

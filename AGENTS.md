@@ -1,4 +1,4 @@
-# Conflict Debugger Agent Guide
+# Daiosity Conflict Debugger Agent Guide
 
 ## Purpose
 

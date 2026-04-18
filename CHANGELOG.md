@@ -1,6 +1,12 @@
 # Changelog
 
-All notable changes to `Conflict Debugger` are tracked here.
+All notable changes to `Daiosity Conflict Debugger` are tracked here.
+
+## 1.1.4
+
+- Renamed the public plugin identity to `Daiosity Conflict Debugger` and the distributable slug to `daiosity-conflict-debugger`.
+- Completed the WordPress.org naming pass so the plugin now carries a branded, directory-safe identity instead of a generic name.
+- Updated LocalWP install expectations, build outputs, and repo docs so GitHub remains the canonical source and download location for releases.
 
 ## 1.1.3
 
@@ -90,7 +96,7 @@ All notable changes to `Conflict Debugger` are tracked here.
 
 ## 1.0.17
 
-- Fixed the host-friendly ZIP build so `conflict-debugger.zip` is truly flat at archive root while `conflict-debugger-wp-admin.zip` keeps the folder-inside structure for standard WordPress uploads.
+- Fixed the host-friendly ZIP build so `daiosity-conflict-debugger.zip` is truly flat at archive root while `daiosity-conflict-debugger-wp-admin.zip` keeps the folder-inside structure for standard WordPress uploads.
 
 ## 1.0.16
 
@@ -109,7 +115,7 @@ All notable changes to `Conflict Debugger` are tracked here.
 
 ## 1.0.13
 
-- Restored strict WordPress-standard ZIP packaging with a single `conflict-debugger/` folder inside the archive so subfolders like `includes/` and `assets/` install correctly.
+- Restored strict WordPress-standard ZIP packaging with a single `daiosity-conflict-debugger/` folder inside the archive so subfolders like `includes/` and `assets/` install correctly.
 
 ## 1.0.12
 
@@ -119,7 +125,7 @@ All notable changes to `Conflict Debugger` are tracked here.
 
 ## 1.0.11
 
-- Added a strict standard-release build script that packages only the WordPress plugin files into a single top-level `conflict-debugger` folder.
+- Added a strict standard-release build script that packages only the WordPress plugin files into a single top-level `daiosity-conflict-debugger` folder.
 - Standardized the rolling install ZIP to the WordPress-native folder-inside-zip format only.
 
 ## 1.0.10

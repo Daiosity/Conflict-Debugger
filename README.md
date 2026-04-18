@@ -1,6 +1,6 @@
-# Conflict Debugger
+# Daiosity Conflict Debugger
 
-Conflict Debugger is a production-leaning WordPress diagnostics plugin focused on one job:
+Daiosity Conflict Debugger is a production-leaning WordPress diagnostics plugin focused on one job:
 
 **helping site owners and developers find real plugin conflicts without wasting hours disabling plugins one by one.**
 
@@ -126,15 +126,15 @@ Severity is capped deliberately:
 1. Download the WordPress admin package from the project build output or release.
 2. In WordPress, go to `Plugins > Add New > Upload Plugin`.
 3. Upload the ZIP package.
-4. Activate **Conflict Debugger**.
-5. Open `Tools > Conflict Debugger`.
+4. Activate **Daiosity Conflict Debugger**.
+5. Open `Tools > Daiosity Conflict Debugger`.
 
 ### Local development
 
 Copy the plugin folder into:
 
 ```text
-wp-content/plugins/conflict-debugger/
+wp-content/plugins/daiosity-conflict-debugger/
 ```
 
 Then activate it from the WordPress admin.
@@ -145,8 +145,8 @@ This repository includes a GitHub Actions workflow that can build release-ready 
 
 Release outputs:
 
-- `conflict-debugger-wp-admin.zip`
-- `conflict-debugger.zip`
+- `daiosity-conflict-debugger-wp-admin.zip`
+- `daiosity-conflict-debugger.zip`
 
 The workflow can be triggered manually or from version tags, which makes the repository easier to maintain and present professionally.
 
@@ -165,7 +165,7 @@ These fixtures are meant to keep detector trust high as the heuristics and traci
 ## Repository Structure
 
 ```text
-conflict-debugger/
+daiosity-conflict-debugger/
 |-- assets/
 |-- docs/
 |-- includes/
@@ -177,7 +177,7 @@ conflict-debugger/
 |-- tools/
 |-- AGENTS.md
 |-- CHANGELOG.md
-|-- conflict-debugger.php
+|-- daiosity-conflict-debugger.php
 |-- readme.txt
 `-- uninstall.php
 ```

@@ -1,10 +1,10 @@
-=== Conflict Debugger ===
+=== Daiosity Conflict Debugger ===
 Contributors: christotheron
 Tags: diagnostics, debugging, plugins, conflicts, health
 Requires at least: 6.2
 Tested up to: 6.9
 Requires PHP: 8.1
-Stable tag: 1.1.3
+Stable tag: 1.1.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -12,7 +12,7 @@ Find likely plugin conflicts before you waste hours disabling plugins manually.
 
 == Description ==
 
-Conflict Debugger is a focused diagnostics plugin for site owners, developers, and agencies who need a faster way to investigate likely plugin conflicts.
+Daiosity Conflict Debugger is a focused diagnostics plugin for site owners, developers, and agencies who need a faster way to investigate likely plugin conflicts.
 
 The free/core foundation includes:
 
@@ -29,9 +29,9 @@ This plugin does not guarantee an exact root cause. It surfaces likely conflict 
 
 == Installation ==
 
-1. Upload the plugin files to the `/wp-content/plugins/conflict-debugger` directory, or install the plugin through the WordPress plugins screen.
+1. Upload the plugin files to the `/wp-content/plugins/daiosity-conflict-debugger` directory, or install the plugin through the WordPress plugins screen.
 2. Activate the plugin through the Plugins screen in WordPress.
-3. Go to Tools > Conflict Debugger.
+3. Go to Tools > Daiosity Conflict Debugger.
 4. Click "Run Scan" to generate your first report.
 
 == Frequently Asked Questions ==
@@ -50,8 +50,13 @@ The current architecture is prepared for safe test mode, binary-search auto-isol
 
 == Changelog ==
 
+= 1.1.4 =
+- Renamed the public plugin name to `Daiosity Conflict Debugger` and the distributable slug, folder, ZIP outputs, admin page slug, and text domain to `daiosity-conflict-debugger`.
+- Completed the WordPress.org naming pass so the plugin now carries a distinctive branded identity instead of a generic directory-facing name.
+- Updated LocalWP install paths, packaging outputs, and repository links so GitHub remains the canonical source and download location.
+
 = 1.1.3 =
-- Renamed the distributable plugin slug, folder, admin page slug, ZIP outputs, and text domain from `plugin-conflict-debugger` to `conflict-debugger` so the project clears the final WordPress.org naming restriction around the word "plugin".
+- Renamed the distributable plugin slug, folder, admin page slug, ZIP outputs, and text domain from `plugin-conflict-debugger` to `conflict-debugger`.
 - Updated packaging, LocalWP install paths, and repository docs to use the new `conflict-debugger` identity consistently.
 - Kept the GitHub repository as the canonical project URL for source, releases, and direct download access.
 
@@ -133,7 +138,7 @@ The current architecture is prepared for safe test mode, binary-search auto-isol
 
 = 1.0.17 =
 
-* Fixed the host-friendly ZIP build so `conflict-debugger.zip` is truly flat at archive root while `conflict-debugger-wp-admin.zip` keeps the folder-inside structure for standard WordPress uploads.
+* Fixed the host-friendly ZIP build so `daiosity-conflict-debugger.zip` is truly flat at archive root while `daiosity-conflict-debugger-wp-admin.zip` keeps the folder-inside structure for standard WordPress uploads.
 
 = 1.0.16 =
 
@@ -152,7 +157,7 @@ The current architecture is prepared for safe test mode, binary-search auto-isol
 
 = 1.0.13 =
 
-* Restored strict WordPress-standard ZIP packaging with a single `conflict-debugger/` folder inside the archive so subfolders like `includes/` and `assets/` install correctly.
+* Restored strict WordPress-standard ZIP packaging with a single `daiosity-conflict-debugger/` folder inside the archive so subfolders like `includes/` and `assets/` install correctly.
 
 = 1.0.12 =
 
@@ -162,7 +167,7 @@ The current architecture is prepared for safe test mode, binary-search auto-isol
 
 = 1.0.11 =
 
-* Added a strict standard-release build script that packages only the WordPress plugin files into a single top-level `conflict-debugger` folder.
+* Added a strict standard-release build script that packages only the WordPress plugin files into a single top-level `daiosity-conflict-debugger` folder.
 * Standardized the rolling install ZIP to the WordPress-native folder-inside-zip format only.
 
 = 1.0.10 =

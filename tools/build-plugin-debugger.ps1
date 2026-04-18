@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = 'Stop'
 
 # Fixed slug. Do not derive from the current folder name.
-$Slug = 'conflict-debugger'
+$Slug = 'daiosity-conflict-debugger'
 $RootDir = Split-Path -Parent $PSScriptRoot
 $BuildDir = Join-Path $RootDir 'build'
 $DistDir = Join-Path $RootDir 'build'
@@ -12,7 +12,7 @@ $ZipPath = Join-Path $DistDir ($Slug + '.zip')
 
 # Explicit include list keeps the package predictable.
 $IncludeItems = @(
-    'conflict-debugger.php',
+    'daiosity-conflict-debugger.php',
     'includes',
     'assets',
     'languages',

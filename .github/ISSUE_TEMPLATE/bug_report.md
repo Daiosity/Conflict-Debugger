@@ -28,7 +28,7 @@ Tell us what you expected instead.
 
 - WordPress version:
 - PHP version:
-- Conflict Debugger version:
+- Daiosity Conflict Debugger version:
 - Theme:
 - Hosting/local environment:
 

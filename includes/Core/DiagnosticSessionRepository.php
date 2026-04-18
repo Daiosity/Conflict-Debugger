@@ -134,15 +134,15 @@ final class DiagnosticSessionRepository {
 	 */
 	public function get_supported_contexts(): array {
 		return array(
-			'all'      => __( 'Any site area', 'conflict-debugger' ),
-			'frontend' => __( 'Frontend', 'conflict-debugger' ),
-			'admin'    => __( 'Admin', 'conflict-debugger' ),
-			'ajax'     => __( 'AJAX / async request', 'conflict-debugger' ),
-			'rest'     => __( 'REST API', 'conflict-debugger' ),
-			'editor'   => __( 'Editor', 'conflict-debugger' ),
-			'login'    => __( 'Login / account', 'conflict-debugger' ),
-			'checkout' => __( 'Checkout / commerce', 'conflict-debugger' ),
-			'cron'     => __( 'Cron / background job', 'conflict-debugger' ),
+			'all'      => __( 'Any site area', 'daiosity-conflict-debugger' ),
+			'frontend' => __( 'Frontend', 'daiosity-conflict-debugger' ),
+			'admin'    => __( 'Admin', 'daiosity-conflict-debugger' ),
+			'ajax'     => __( 'AJAX / async request', 'daiosity-conflict-debugger' ),
+			'rest'     => __( 'REST API', 'daiosity-conflict-debugger' ),
+			'editor'   => __( 'Editor', 'daiosity-conflict-debugger' ),
+			'login'    => __( 'Login / account', 'daiosity-conflict-debugger' ),
+			'checkout' => __( 'Checkout / commerce', 'daiosity-conflict-debugger' ),
+			'cron'     => __( 'Cron / background job', 'daiosity-conflict-debugger' ),
 		);
 	}
 
@@ -177,6 +177,6 @@ final class DiagnosticSessionRepository {
 	 */
 	private function label_for_context( string $context ): string {
 		$contexts = $this->get_supported_contexts();
-		return $contexts[ $context ] ?? __( 'Any site area', 'conflict-debugger' );
+		return $contexts[ $context ] ?? __( 'Any site area', 'daiosity-conflict-debugger' );
 	}
 }

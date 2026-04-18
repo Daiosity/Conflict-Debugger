@@ -439,7 +439,7 @@ final class RegistrySnapshot {
 			$relative = ltrim( substr( $file, strlen( wp_normalize_path( WP_PLUGIN_DIR ) ) ), '/' );
 			$parts    = explode( '/', $relative );
 
-			if ( ! empty( $parts[0] ) && 'conflict-debugger' !== $parts[0] ) {
+			if ( ! empty( $parts[0] ) && 'daiosity-conflict-debugger' !== $parts[0] ) {
 				return sanitize_key( (string) $parts[0] );
 			}
 		}

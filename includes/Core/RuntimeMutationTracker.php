@@ -509,7 +509,7 @@ final class RuntimeMutationTracker {
 		if ( 'callback_priority_changed' === $mutation_kind ) {
 			return sprintf(
 				/* translators: 1: callback label, 2: owner slug, 3: old priority, 4: new priority, 5: hook name. */
-				__( 'Callback %1$s owned by %2$s moved from priority %3$d to %4$d on %5$s during this request.', 'conflict-debugger' ),
+				__( 'Callback %1$s owned by %2$s moved from priority %3$d to %4$d on %5$s during this request.', 'daiosity-conflict-debugger' ),
 				$callback_label,
 				$target_owner,
 				(int) ( $previous_meta['priority'] ?? 0 ),
@@ -521,7 +521,7 @@ final class RuntimeMutationTracker {
 		if ( 'callback_replaced' === $mutation_kind && '' !== $actor_slug && TraceEvent::ATTRIBUTION_UNKNOWN !== $attribution_status ) {
 			return sprintf(
 				/* translators: 1: callback label, 2: target owner slug, 3: hook name, 4: actor slug. */
-				__( 'Callback %1$s owned by %2$s disappeared from %3$s while %4$s introduced a replacement candidate at the same priority in the same request.', 'conflict-debugger' ),
+				__( 'Callback %1$s owned by %2$s disappeared from %3$s while %4$s introduced a replacement candidate at the same priority in the same request.', 'daiosity-conflict-debugger' ),
 				$callback_label,
 				$target_owner,
 				$hook_name,
@@ -532,7 +532,7 @@ final class RuntimeMutationTracker {
 		if ( 'callback_removed' === $mutation_kind && '' !== $actor_slug && TraceEvent::ATTRIBUTION_UNKNOWN !== $attribution_status ) {
 			return sprintf(
 				/* translators: 1: callback label, 2: target owner slug, 3: hook name, 4: actor slug. */
-				__( 'Callback %1$s owned by %2$s was present earlier on %3$s and later disappeared while %4$s was the clearest mutator candidate on the same request path.', 'conflict-debugger' ),
+				__( 'Callback %1$s owned by %2$s was present earlier on %3$s and later disappeared while %4$s was the clearest mutator candidate on the same request path.', 'daiosity-conflict-debugger' ),
 				$callback_label,
 				$target_owner,
 				$hook_name,
@@ -542,7 +542,7 @@ final class RuntimeMutationTracker {
 
 		return sprintf(
 			/* translators: 1: callback label, 2: target owner slug, 3: hook name. */
-			__( 'Callback %1$s owned by %2$s was present earlier on %3$s but absent in a later snapshot. The mutating actor could not yet be attributed with confidence.', 'conflict-debugger' ),
+			__( 'Callback %1$s owned by %2$s was present earlier on %3$s but absent in a later snapshot. The mutating actor could not yet be attributed with confidence.', 'daiosity-conflict-debugger' ),
 			$callback_label,
 			$target_owner,
 			$hook_name

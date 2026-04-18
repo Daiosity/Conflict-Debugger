@@ -1,16 +1,16 @@
 <?php
 /**
- * Plugin Name: Conflict Debugger
+ * Plugin Name: Daiosity Conflict Debugger
  * Plugin URI: https://github.com/Daiosity/Conflict-Debugger
  * Description: Find likely plugin conflicts before you waste hours disabling plugins manually.
- * Version: 1.1.3
+ * Version: 1.1.4
  * Requires at least: 6.2
  * Requires PHP: 8.1
  * Author: Christo Theron
  * Author URI: https://github.com/Daiosity
  * License: GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain: conflict-debugger
+ * Text Domain: daiosity-conflict-debugger
  * Domain Path: /languages
  *
  * @package PluginConflictDebugger
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'PCD_VERSION', '1.1.3' );
+define( 'PCD_VERSION', '1.1.4' );
 define( 'PCD_FILE', __FILE__ );
 define( 'PCD_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PCD_URL', plugin_dir_url( __FILE__ ) );
@@ -53,8 +53,8 @@ define( 'PCD_BASENAME', plugin_basename( __FILE__ ) );
 				printf(
 					'<div class="notice notice-error"><p>%s</p></div>',
 					esc_html__(
-						'Conflict Debugger could not locate its autoloader. Reinstall the plugin and confirm the ZIP preserved the includes directory.',
-						'conflict-debugger'
+						'Daiosity Conflict Debugger could not locate its autoloader. Reinstall the plugin and confirm the ZIP preserved the includes directory.',
+						'daiosity-conflict-debugger'
 					)
 				);
 			}

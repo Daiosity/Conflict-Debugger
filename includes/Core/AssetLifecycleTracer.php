@@ -489,15 +489,15 @@ final class AssetLifecycleTracer {
 	 * @return string
 	 */
 	private function build_asset_message( string $type, string $mutation_kind, string $handle, string $owner_slug, array $actor_meta, array $meta ): string {
-		$hook_name    = sanitize_text_field( (string) ( $meta['hook'] ?? __( 'asset lifecycle', 'conflict-debugger' ) ) );
-		$owner_label  = '' !== $owner_slug ? $owner_slug : __( 'unknown owner', 'conflict-debugger' );
+		$hook_name    = sanitize_text_field( (string) ( $meta['hook'] ?? __( 'asset lifecycle', 'daiosity-conflict-debugger' ) ) );
+		$owner_label  = '' !== $owner_slug ? $owner_slug : __( 'unknown owner', 'daiosity-conflict-debugger' );
 		$actor_slug   = sanitize_key( (string) ( $actor_meta['actor_slug'] ?? '' ) );
 		$actor_status = (string) ( $actor_meta['attribution_status'] ?? TraceEvent::ATTRIBUTION_UNKNOWN );
 
 		if ( 'asset_registered' === $mutation_kind ) {
 			return sprintf(
 				/* translators: 1: handle, 2: owner slug, 3: hook name. */
-				__( 'Handle %1$s was registered for %2$s during %3$s.', 'conflict-debugger' ),
+				__( 'Handle %1$s was registered for %2$s during %3$s.', 'daiosity-conflict-debugger' ),
 				$handle,
 				$owner_label,
 				$hook_name
@@ -507,7 +507,7 @@ final class AssetLifecycleTracer {
 		if ( 'asset_enqueued' === $mutation_kind ) {
 			return sprintf(
 				/* translators: 1: type, 2: handle, 3: hook name. */
-				__( 'The %1$s handle %2$s entered the queue during %3$s.', 'conflict-debugger' ),
+				__( 'The %1$s handle %2$s entered the queue during %3$s.', 'daiosity-conflict-debugger' ),
 				$type,
 				$handle,
 				$hook_name
@@ -517,7 +517,7 @@ final class AssetLifecycleTracer {
 		if ( in_array( $mutation_kind, array( 'asset_dequeued', 'asset_deregistered' ), true ) && '' !== $actor_slug && TraceEvent::ATTRIBUTION_UNKNOWN !== $actor_status ) {
 			return sprintf(
 				/* translators: 1: handle, 2: owner slug, 3: mutation kind, 4: actor slug, 5: hook name. */
-				__( 'Handle %1$s owned by %2$s was %3$s while %4$s was the clearest mutator candidate on %5$s.', 'conflict-debugger' ),
+				__( 'Handle %1$s owned by %2$s was %3$s while %4$s was the clearest mutator candidate on %5$s.', 'daiosity-conflict-debugger' ),
 				$handle,
 				$owner_label,
 				str_replace( '_', ' ', str_replace( 'asset_', '', $mutation_kind ) ),
@@ -529,7 +529,7 @@ final class AssetLifecycleTracer {
 		if ( in_array( $mutation_kind, array( 'asset_dequeued', 'asset_deregistered' ), true ) ) {
 			return sprintf(
 				/* translators: 1: handle, 2: owner slug, 3: mutation kind, 4: hook name. */
-				__( 'Handle %1$s owned by %2$s was %3$s during %4$s, but the mutating callback could not yet be attributed with certainty.', 'conflict-debugger' ),
+				__( 'Handle %1$s owned by %2$s was %3$s during %4$s, but the mutating callback could not yet be attributed with certainty.', 'daiosity-conflict-debugger' ),
 				$handle,
 				$owner_label,
 				str_replace( '_', ' ', str_replace( 'asset_', '', $mutation_kind ) ),
@@ -539,7 +539,7 @@ final class AssetLifecycleTracer {
 
 		return sprintf(
 			/* translators: 1: handle, 2: mutation kind, 3: hook name. */
-			__( 'Handle %1$s changed state (%2$s) during %3$s.', 'conflict-debugger' ),
+			__( 'Handle %1$s changed state (%2$s) during %3$s.', 'daiosity-conflict-debugger' ),
 			$handle,
 			str_replace( '_', ' ', str_replace( 'asset_', '', $mutation_kind ) ),
 			$hook_name

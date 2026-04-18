@@ -1,4 +1,4 @@
-# Conflict Debugger Task List
+# Daiosity Conflict Debugger Task List
 
 This task list keeps the next diagnostics milestones concrete and visible in the repository.
 

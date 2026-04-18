@@ -145,11 +145,11 @@ final class ValidationModeRepository {
 	 */
 	public function get_supported_targets(): array {
 		return array(
-			'plugin_pair'  => __( 'Plugin pair', 'conflict-debugger' ),
-			'hook'         => __( 'Hook / execution surface', 'conflict-debugger' ),
-			'asset_handle' => __( 'Asset handle', 'conflict-debugger' ),
-			'rest_route'   => __( 'REST route', 'conflict-debugger' ),
-			'ajax_action'  => __( 'AJAX action', 'conflict-debugger' ),
+			'plugin_pair'  => __( 'Plugin pair', 'daiosity-conflict-debugger' ),
+			'hook'         => __( 'Hook / execution surface', 'daiosity-conflict-debugger' ),
+			'asset_handle' => __( 'Asset handle', 'daiosity-conflict-debugger' ),
+			'rest_route'   => __( 'REST route', 'daiosity-conflict-debugger' ),
+			'ajax_action'  => __( 'AJAX action', 'daiosity-conflict-debugger' ),
 		);
 	}
 
@@ -342,7 +342,7 @@ final class ValidationModeRepository {
 		}
 
 		if ( empty( $parts ) ) {
-			return __( 'Focused validation', 'conflict-debugger' );
+			return __( 'Focused validation', 'daiosity-conflict-debugger' );
 		}
 
 		return implode( ' - ', $parts );

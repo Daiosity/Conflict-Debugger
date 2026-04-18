@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Build a WordPress-installable ZIP with exactly one root folder:
-#   plugin-conflict-debugger/
+#   daiosity-conflict-debugger/
 #
 # This script is intentionally deterministic:
 # - fixed slug, never derived from the current directory
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-SLUG="plugin-conflict-debugger"
+SLUG="daiosity-conflict-debugger"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${ROOT_DIR}/build"
 DIST_DIR="${ROOT_DIR}/build"
@@ -21,7 +21,7 @@ ZIP_PATH="${DIST_DIR}/${SLUG}.zip"
 # Files and folders expected at the project root.
 # Keep this explicit so packaging stays predictable.
 INCLUDE_ITEMS=(
-  "plugin-conflict-debugger.php"
+  "daiosity-conflict-debugger.php"
   "includes"
   "assets"
   "languages"
