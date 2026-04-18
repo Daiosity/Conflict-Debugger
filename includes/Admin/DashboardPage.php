@@ -558,7 +558,8 @@ final class DashboardPage {
 
 			<section class="pcd-summary-cards">
 				<?php $this->render_summary_card( __( 'Active Plugins', 'plugin-conflict-debugger' ), (string) ( $summary['active_plugins'] ?? '0' ) ); ?>
-				<?php $this->render_summary_card( __( 'Error Signals', 'plugin-conflict-debugger' ), (string) ( $summary['error_signals'] ?? '0' ) ); ?>
+				<?php $this->render_summary_card( __( 'Error Signals', 'plugin-conflict-debugger' ), (string) ( $summary['error_signals'] ?? '0' ), __( 'PHP, log, request, and runtime failures.', 'plugin-conflict-debugger' ) ); ?>
+				<?php $this->render_summary_card( __( 'Trace Warnings', 'plugin-conflict-debugger' ), (string) ( $summary['trace_warnings'] ?? '0' ), __( 'Observed mutations and suppressed callbacks, not confirmed breakage by themselves.', 'plugin-conflict-debugger' ) ); ?>
 				<?php $this->render_summary_card( __( 'Likely Conflicts', 'plugin-conflict-debugger' ), (string) ( $summary['likely_conflicts'] ?? '0' ) ); ?>
 				<?php $this->render_summary_card( __( 'Recent Plugin Changes', 'plugin-conflict-debugger' ), (string) ( $summary['recent_changes'] ?? '0' ) ); ?>
 				<div class="pcd-summary-card pcd-summary-card-status">
@@ -1490,6 +1491,7 @@ final class DashboardPage {
 												<th><?php esc_html_e( 'Site Status', 'plugin-conflict-debugger' ); ?></th>
 												<th><?php esc_html_e( 'Conflicts', 'plugin-conflict-debugger' ); ?></th>
 												<th><?php esc_html_e( 'Errors', 'plugin-conflict-debugger' ); ?></th>
+												<th><?php esc_html_e( 'Trace Warnings', 'plugin-conflict-debugger' ); ?></th>
 												<th><?php esc_html_e( 'Log Access', 'plugin-conflict-debugger' ); ?></th>
 											</tr>
 										</thead>
@@ -1504,6 +1506,7 @@ final class DashboardPage {
 													</td>
 													<td><?php echo esc_html( (string) ( $history_item['summary']['likely_conflicts'] ?? 0 ) ); ?></td>
 													<td><?php echo esc_html( (string) ( $history_item['summary']['error_signals'] ?? 0 ) ); ?></td>
+													<td><?php echo esc_html( (string) ( $history_item['summary']['trace_warnings'] ?? 0 ) ); ?></td>
 													<td><?php echo esc_html( ucfirst( str_replace( '_', ' ', (string) ( $history_item['log_access']['status'] ?? __( 'Unknown', 'plugin-conflict-debugger' ) ) ) ) ); ?></td>
 												</tr>
 											<?php endforeach; ?>
@@ -1540,11 +1543,14 @@ final class DashboardPage {
 	 * @param string $value Summary value.
 	 * @return void
 	 */
-	private function render_summary_card( string $label, string $value ): void {
+	private function render_summary_card( string $label, string $value, string $note = '' ): void {
 		?>
 		<div class="pcd-summary-card">
 			<span class="pcd-summary-label"><?php echo esc_html( $label ); ?></span>
 			<strong class="pcd-summary-value"><?php echo esc_html( $value ); ?></strong>
+			<?php if ( '' !== $note ) : ?>
+				<p class="pcd-summary-note"><?php echo esc_html( $note ); ?></p>
+			<?php endif; ?>
 		</div>
 		<?php
 	}

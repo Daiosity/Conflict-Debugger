@@ -53,6 +53,7 @@ That means the detector does **not** treat common WordPress behavior as proof of
 
 - recent request context capture
 - lightweight runtime telemetry
+- trace warnings kept separate from actual PHP, log, and request failures in scan summaries
 - JS and failed-request evidence surfaced in diagnostics
 - log access checks with graceful fallback when direct `debug.log` access is unavailable
 - request trace comparison between the most abnormal captured trace and the closest calmer baseline
@@ -159,7 +160,7 @@ Detector regression fixtures live in [`tests/fixtures/`](./tests/fixtures/). The
 - REST route collision
 - AJAX action collision
 
-These fixtures are meant to keep detector trust high as the heuristics and tracing layers evolve.
+These fixtures are meant to keep detector trust high as the heuristics and tracing layers evolve. In this workspace, the LocalWP test site also includes helper scripts for resetting telemetry/debug logs and replaying authenticated admin requests so fixture runs stay repeatable.
 
 ## Repository Structure
 
@@ -193,8 +194,8 @@ plugin-conflict-debugger/
 
 Near-term priorities:
 
-- callback mutation tracing with actor attribution and request-path correlation
-- stronger request-trace comparison views
+- stronger callback actor attribution so removal events can graduate from trace warnings to conservative pairwise findings when the mutator is proven
+- scan diff UX that highlights new findings, resolved findings, and confidence changes
 - deeper exact ownership mapping
 - improved plugin-focused diagnostics
 

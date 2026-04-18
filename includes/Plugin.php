@@ -43,7 +43,12 @@ final class Plugin {
 	 * @return void
 	 */
 	public function boot(): void {
-		$this->load_textdomain();
+		add_action(
+			'init',
+			function (): void {
+				$this->load_textdomain();
+			}
+		);
 
 		$capabilities = new Capabilities();
 		$repository   = new ResultsRepository();

@@ -63,15 +63,21 @@ final class AssetLifecycleTracer {
 	private array $emitted = array();
 
 	/**
+	 * Prevents recursive checkpoint capture while WordPress is building assets.
+	 *
+	 * @var bool
+	 */
+	private bool $is_capturing = false;
+
+	/**
 	 * Registers tracer hooks.
 	 *
 	 * @return void
 	 */
 	public function register(): void {
-		add_action( 'init', array( $this, 'bootstrap_checkpoint' ), 1 );
-
 		foreach ( $this->tracked_hooks() as $hook_name ) {
-			add_action( $hook_name, array( $this, 'capture_early_checkpoint' ), 1, 20 );
+			add_action( $hook_name, array( $this, 'capture_baseline_checkpoint' ), -999999, 20 );
+			$this->register_priority_checkpoints( $hook_name );
 			add_action( $hook_name, array( $this, 'capture_late_checkpoint' ), 9999, 20 );
 		}
 
@@ -93,21 +99,26 @@ final class AssetLifecycleTracer {
 	}
 
 	/**
-	 * Captures the initial request snapshot.
+	 * Captures a baseline checkpoint before the active asset hook runs.
 	 *
 	 * @return void
 	 */
-	public function bootstrap_checkpoint(): void {
-		$this->last_snapshot = $this->build_snapshot();
+	public function capture_baseline_checkpoint(): void {
+		$this->capture_checkpoint( 'before', array(), -999999 );
 	}
 
 	/**
-	 * Captures an early-phase checkpoint for the active asset hook.
+	 * Captures a priority-level checkpoint for the active asset hook.
 	 *
+	 * @param int $priority Callback priority being observed.
 	 * @return void
 	 */
-	public function capture_early_checkpoint(): void {
-		$this->capture_checkpoint( 'before' );
+	public function capture_priority_checkpoint( int $priority ): void {
+		$this->capture_checkpoint(
+			'after_priority_' . $priority,
+			$this->hook_actor_candidates( current_filter(), $priority ),
+			$priority
+		);
 	}
 
 	/**
@@ -116,7 +127,7 @@ final class AssetLifecycleTracer {
 	 * @return void
 	 */
 	public function capture_late_checkpoint(): void {
-		$this->capture_checkpoint( 'after' );
+		$this->capture_checkpoint( 'after', $this->hook_actor_candidates( current_filter() ), 9999 );
 	}
 
 	/**
@@ -135,8 +146,6 @@ final class AssetLifecycleTracer {
 	 */
 	private function tracked_hooks(): array {
 		return array(
-			'wp_default_scripts',
-			'wp_default_styles',
 			'wp_enqueue_scripts',
 			'admin_enqueue_scripts',
 			'login_enqueue_scripts',
@@ -155,7 +164,13 @@ final class AssetLifecycleTracer {
 	 * @param string $phase Phase label.
 	 * @return void
 	 */
-	private function capture_checkpoint( string $phase ): void {
+	private function capture_checkpoint( string $phase, array $actor_candidates = array(), ?int $priority = null ): void {
+		if ( $this->is_capturing ) {
+			return;
+		}
+
+		$this->is_capturing = true;
+		try {
 		$current_snapshot = $this->build_snapshot();
 
 		if ( empty( $this->last_snapshot ) ) {
@@ -168,6 +183,7 @@ final class AssetLifecycleTracer {
 		$meta      = array(
 			'hook'             => sanitize_text_field( $hook_name ),
 			'phase'            => sanitize_key( $phase ),
+			'priority'         => null !== $priority ? $priority : 0,
 			'request_context'  => (string) $scope['request_context'],
 			'request_uri'      => (string) $scope['request_uri'],
 			'request_scope'    => (string) $scope['request_scope'],
@@ -175,13 +191,48 @@ final class AssetLifecycleTracer {
 			'request_id'       => (string) $scope['request_id'],
 			'session_id'       => (string) $scope['session_id'],
 			'resource_hints'   => (array) $scope['resource_hints'],
-			'actor_candidates' => $this->hook_actor_candidates( $hook_name ),
+			'actor_candidates' => $actor_candidates,
 		);
 
 		$this->compare_store( 'script', (array) ( $this->last_snapshot['scripts'] ?? array() ), (array) ( $current_snapshot['scripts'] ?? array() ), $meta );
 		$this->compare_store( 'style', (array) ( $this->last_snapshot['styles'] ?? array() ), (array) ( $current_snapshot['styles'] ?? array() ), $meta );
 
 		$this->last_snapshot = $current_snapshot;
+		} finally {
+			$this->is_capturing = false;
+		}
+	}
+
+	/**
+	 * Registers hook checkpoints at each known callback priority.
+	 *
+	 * @param string $hook_name Hook name.
+	 * @return void
+	 */
+	private function register_priority_checkpoints( string $hook_name ): void {
+		global $wp_filter;
+
+		if ( empty( $wp_filter[ $hook_name ] ) || ! $wp_filter[ $hook_name ] instanceof \WP_Hook ) {
+			return;
+		}
+
+		$priorities = array_map( 'intval', array_keys( $wp_filter[ $hook_name ]->callbacks ) );
+		sort( $priorities, SORT_NUMERIC );
+
+		foreach ( $priorities as $priority ) {
+			if ( $priority >= 9999 ) {
+				continue;
+			}
+
+			add_action(
+				$hook_name,
+				function () use ( $priority ): void {
+					$this->capture_priority_checkpoint( $priority );
+				},
+				$priority,
+				20
+			);
+		}
 	}
 
 	/**
@@ -288,7 +339,7 @@ final class AssetLifecycleTracer {
 		}
 
 		$owner_slug     = sanitize_key( (string) ( $current_state['owner_slug'] ?? $previous_state['owner_slug'] ?? '' ) );
-		$actor_meta     = $this->resolve_actor_meta( $mutation_kind, $owner_slug, (array) ( $meta['actor_candidates'] ?? array() ) );
+		$actor_meta     = $this->resolve_actor_meta( $mutation_kind, $owner_slug, (array) ( $meta['actor_candidates'] ?? array() ), (string) ( $meta['phase'] ?? '' ) );
 		$actor_slug     = sanitize_key( (string) ( $actor_meta['actor_slug'] ?? '' ) );
 
 		if ( '' === $owner_slug && '' === $actor_slug ) {
@@ -352,7 +403,7 @@ final class AssetLifecycleTracer {
 				'execution_surface'    => (string) ( $meta['hook'] ?? '' ),
 				'hook'                 => (string) ( $meta['hook'] ?? '' ),
 				'callback'             => '',
-				'priority'             => 0,
+				'priority'             => (int) ( $meta['priority'] ?? 0 ),
 				'mutation_kind'        => $mutation_kind,
 				'mutation_status'      => in_array( $mutation_kind, array( 'asset_dequeued', 'asset_deregistered' ), true ) ? TraceEvent::MUTATION_OBSERVED : TraceEvent::MUTATION_SUSPECTED,
 				'attribution_status'   => (string) ( $actor_meta['attribution_status'] ?? TraceEvent::ATTRIBUTION_UNKNOWN ),
@@ -375,9 +426,10 @@ final class AssetLifecycleTracer {
 	 * @param string   $mutation_kind Mutation kind.
 	 * @param string   $owner_slug Resource owner slug.
 	 * @param string[] $actor_candidates Actor candidates on the hook.
+	 * @param string   $phase Checkpoint phase.
 	 * @return array<string, string>
 	 */
-	private function resolve_actor_meta( string $mutation_kind, string $owner_slug, array $actor_candidates ): array {
+	private function resolve_actor_meta( string $mutation_kind, string $owner_slug, array $actor_candidates, string $phase ): array {
 		$actor_candidates = array_values(
 			array_unique(
 				array_filter(
@@ -386,10 +438,22 @@ final class AssetLifecycleTracer {
 			)
 		);
 
-		if ( 'asset_registered' === $mutation_kind && '' !== $owner_slug && in_array( $owner_slug, $actor_candidates, true ) ) {
+		if (
+			in_array( $mutation_kind, array( 'asset_registered', 'asset_enqueued' ), true )
+			&& '' !== $owner_slug
+			&& 1 === count( $actor_candidates )
+			&& in_array( $owner_slug, $actor_candidates, true )
+		) {
 			return array(
 				'actor_slug'          => $owner_slug,
 				'attribution_status'  => TraceEvent::ATTRIBUTION_DIRECT,
+			);
+		}
+
+		if ( in_array( $mutation_kind, array( 'asset_registered', 'asset_enqueued' ), true ) ) {
+			return array(
+				'actor_slug'         => '',
+				'attribution_status' => TraceEvent::ATTRIBUTION_UNKNOWN,
 			);
 		}
 
@@ -403,7 +467,7 @@ final class AssetLifecycleTracer {
 		if ( 1 === count( $filtered_candidates ) ) {
 			return array(
 				'actor_slug'         => $filtered_candidates[0],
-				'attribution_status' => TraceEvent::ATTRIBUTION_PARTIAL,
+				'attribution_status' => 0 === strpos( $phase, 'after_priority_' ) ? TraceEvent::ATTRIBUTION_DIRECT : TraceEvent::ATTRIBUTION_PARTIAL,
 			);
 		}
 
@@ -488,9 +552,11 @@ final class AssetLifecycleTracer {
 	 * @return array<string, mixed>
 	 */
 	private function build_snapshot(): array {
+		global $wp_scripts, $wp_styles;
+
 		return array(
-			'scripts' => $this->snapshot_dependency_store( wp_scripts(), 'script' ),
-			'styles'  => $this->snapshot_dependency_store( wp_styles(), 'style' ),
+			'scripts' => $this->snapshot_dependency_store( $wp_scripts instanceof WP_Dependencies ? $wp_scripts : null, 'script' ),
+			'styles'  => $this->snapshot_dependency_store( $wp_styles instanceof WP_Dependencies ? $wp_styles : null, 'style' ),
 		);
 	}
 
@@ -511,6 +577,7 @@ final class AssetLifecycleTracer {
 
 		$registry_snapshot = $this->registry->get_asset_snapshot();
 		$queue             = array_map( static fn( $handle ): string => sanitize_key( (string) $handle ), (array) ( $store->queue ?? array() ) );
+		$queue_lookup      = array_fill_keys( $queue, true );
 		$registered        = array();
 
 		foreach ( (array) $store->registered as $handle => $dependency ) {
@@ -519,17 +586,24 @@ final class AssetLifecycleTracer {
 			$owner_slug = sanitize_key( (string) ( $registry_snapshot[ $handle ]['owner_slug'] ?? $this->resolve_plugin_slug_from_path( $src ) ) );
 			$group      = isset( $dependency->extra['group'] ) ? sanitize_text_field( (string) $dependency->extra['group'] ) : '';
 			$media      = 'style' === $type ? sanitize_text_field( (string) ( $dependency->args ?? '' ) ) : '';
+			$in_queue   = isset( $queue_lookup[ $handle ] );
+
+			// Keep the snapshot lean. For attribution we mainly care about plugin-owned
+			// handles and the handles that are actually live in the queue right now.
+			if ( '' === $owner_slug && ! $in_queue ) {
+				continue;
+			}
 
 			$registered[ $handle ] = array(
 				'handle'     => $handle,
 				'owner_slug' => $owner_slug,
 				'type'       => $type,
 				'src'        => $src,
-				'deps'       => array_values( array_map( 'sanitize_key', (array) ( $dependency->deps ?? array() ) ) ),
+				'deps'       => array_slice( array_values( array_map( 'sanitize_key', (array) ( $dependency->deps ?? array() ) ) ), 0, 8 ),
 				'ver'        => sanitize_text_field( (string) ( $dependency->ver ?? '' ) ),
 				'group'      => $group,
 				'media'      => $media,
-				'in_queue'   => in_array( $handle, $queue, true ),
+				'in_queue'   => $in_queue,
 			);
 		}
 
@@ -593,7 +667,7 @@ final class AssetLifecycleTracer {
 	 * @param string $hook_name Hook name.
 	 * @return string[]
 	 */
-	private function hook_actor_candidates( string $hook_name ): array {
+	private function hook_actor_candidates( string $hook_name, ?int $priority = null ): array {
 		global $wp_filter;
 
 		if ( '' === $hook_name || empty( $wp_filter[ $hook_name ] ) || ! $wp_filter[ $hook_name ] instanceof \WP_Hook ) {
@@ -602,16 +676,47 @@ final class AssetLifecycleTracer {
 
 		$owners = array();
 
-		foreach ( $wp_filter[ $hook_name ]->callbacks as $callbacks ) {
+		foreach ( $wp_filter[ $hook_name ]->callbacks as $registered_priority => $callbacks ) {
+			if ( null !== $priority && (int) $registered_priority !== $priority ) {
+				continue;
+			}
+
 			foreach ( $callbacks as $callback ) {
+				if ( $this->is_tracer_callback( $callback['function'] ?? null ) ) {
+					continue;
+				}
+
 				$owner_slug = $this->resolve_plugin_slug_from_callback( $callback['function'] ?? null );
-				if ( '' !== $owner_slug && 'plugin-conflict-debugger' !== $owner_slug ) {
+				if ( '' !== $owner_slug ) {
 					$owners[] = $owner_slug;
 				}
 			}
 		}
 
 		return array_values( array_unique( $owners ) );
+	}
+
+	/**
+	 * Ignores the tracer's own callbacks when resolving actor candidates.
+	 *
+	 * @param mixed $callback Callback definition.
+	 * @return bool
+	 */
+	private function is_tracer_callback( mixed $callback ): bool {
+		if ( is_array( $callback ) && isset( $callback[0] ) && $callback[0] instanceof self ) {
+			return true;
+		}
+
+		if ( $callback instanceof \Closure ) {
+			try {
+				$reflection = new \ReflectionFunction( $callback );
+				return wp_normalize_path( (string) $reflection->getFileName() ) === wp_normalize_path( __FILE__ );
+			} catch ( \Throwable $exception ) {
+				return false;
+			}
+		}
+
+		return false;
 	}
 
 	/**

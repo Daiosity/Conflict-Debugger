@@ -59,7 +59,6 @@ final class ConflictDetector {
 	public function __construct( Heuristics $heuristics, RegistrySnapshot $registry ) {
 		$this->heuristics = $heuristics;
 		$this->registry   = $registry;
-		$this->surfaces   = $this->get_surface_definitions();
 	}
 
 	/**
@@ -71,6 +70,8 @@ final class ConflictDetector {
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function detect( array $plugins, array $error_signals, array $environment ): array {
+		$this->ensure_surface_definitions();
+
 		$findings          = array();
 		$error_entries     = is_array( $error_signals['entries'] ?? null ) ? $error_signals['entries'] : array();
 		$plugin_index      = $this->index_plugins_by_slug( $plugins );
@@ -309,6 +310,19 @@ final class ConflictDetector {
 		);
 
 		return array_slice( $findings, 0, 25 );
+	}
+
+	/**
+	 * Lazily initializes translated surface definitions after WordPress has booted.
+	 *
+	 * @return void
+	 */
+	private function ensure_surface_definitions(): void {
+		if ( ! empty( $this->surfaces ) ) {
+			return;
+		}
+
+		$this->surfaces = $this->get_surface_definitions();
 	}
 
 	/**

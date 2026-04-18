@@ -92,14 +92,18 @@ final class ErrorCollector {
 		}
 
 		$last_error = error_get_last();
-		if ( ! empty( $last_error ) ) {
-			$signals['entries'][] = array(
+		if ( ! empty( $last_error ) && empty( $signals['log_access']['readable'] ) ) {
+			$last_error_entry = array(
 				'type'    => 'runtime',
 				'level'   => (string) ( $last_error['type'] ?? 'unknown' ),
 				'message' => (string) ( $last_error['message'] ?? '' ),
 				'file'    => (string) ( $last_error['file'] ?? '' ),
 				'line'    => (int) ( $last_error['line'] ?? 0 ),
 			);
+
+			if ( ! $this->contains_equivalent_summary_signal( $signals['entries'], $last_error_entry ) ) {
+				$signals['entries'][] = $last_error_entry;
+			}
 		}
 
 		$recovery_mode = get_option( 'recovery_keys', array() );
@@ -163,6 +167,14 @@ final class ErrorCollector {
 
 		if ( ! empty( $signals['request_contexts'] ) ) {
 			$signals['notes'][] = __( 'Recent request contexts were captured and included in this analysis.', 'plugin-conflict-debugger' );
+		}
+
+		$signals['entries']             = $this->deduplicate_entries( $signals['entries'] );
+		$signals['summary_count']       = $this->count_meaningful_entries( $signals['entries'] );
+		$signals['trace_summary_count'] = $this->count_trace_summary_entries( $signals['entries'] );
+
+		if ( $signals['trace_summary_count'] > 0 ) {
+			$signals['notes'][] = __( 'Trace-level mutation warnings were captured separately from PHP, log, and request error signals.', 'plugin-conflict-debugger' );
 		}
 
 		return $signals;
@@ -261,13 +273,282 @@ final class ErrorCollector {
 			$entries[] = array(
 				'type'    => 'debug_log',
 				'level'   => $this->extract_log_level( (string) $line ),
-				'message' => (string) $line,
+				'message' => $this->normalize_log_message( (string) $line ),
 				'file'    => '',
 				'line'    => 0,
 			);
 		}
 
 		return $entries;
+	}
+
+	/**
+	 * Deduplicates repeated signal entries while preserving a repeat count.
+	 *
+	 * @param array<int, array<string, mixed>> $entries Signal entries.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private function deduplicate_entries( array $entries ): array {
+		$deduplicated = array();
+
+		foreach ( $entries as $entry ) {
+			$fingerprint = $this->entry_fingerprint( $entry );
+
+			if ( ! isset( $deduplicated[ $fingerprint ] ) ) {
+				$entry['repeat_count']            = 1;
+				$deduplicated[ $fingerprint ] = $entry;
+				continue;
+			}
+
+			$deduplicated[ $fingerprint ]['repeat_count'] = (int) ( $deduplicated[ $fingerprint ]['repeat_count'] ?? 1 ) + 1;
+		}
+
+		foreach ( $deduplicated as &$entry ) {
+			$repeat_count = (int) ( $entry['repeat_count'] ?? 1 );
+
+			if ( $repeat_count <= 1 ) {
+				continue;
+			}
+
+			$entry['message'] = sprintf(
+				/* translators: 1: repeat count, 2: message text. */
+				__( 'Repeated %1$d times: %2$s', 'plugin-conflict-debugger' ),
+				$repeat_count,
+				(string) ( $entry['message'] ?? '' )
+			);
+		}
+		unset( $entry );
+
+		return array_values( $deduplicated );
+	}
+
+	/**
+	 * Counts actual runtime/log error signals for dashboard summaries.
+	 *
+	 * @param array<int, array<string, mixed>> $entries Signal entries.
+	 * @return int
+	 */
+	private function count_meaningful_entries( array $entries ): int {
+		$count = 0;
+		$seen  = array();
+
+		foreach ( $entries as $entry ) {
+			if ( ! $this->should_count_entry_in_summary( $entry ) ) {
+				continue;
+			}
+
+			$fingerprint = $this->summary_fingerprint( $entry );
+			if ( isset( $seen[ $fingerprint ] ) ) {
+				continue;
+			}
+
+			$seen[ $fingerprint ] = true;
+			++$count;
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Counts trace-only mutation warnings separately from real error signals.
+	 *
+	 * @param array<int, array<string, mixed>> $entries Signal entries.
+	 * @return int
+	 */
+	private function count_trace_summary_entries( array $entries ): int {
+		$count = 0;
+		$seen  = array();
+
+		foreach ( $entries as $entry ) {
+			if ( ! $this->should_count_entry_in_trace_summary( $entry ) ) {
+				continue;
+			}
+
+			$fingerprint = md5(
+				wp_json_encode(
+					array(
+						'type'          => sanitize_key( (string) ( $entry['type'] ?? '' ) ),
+						'resource_key'  => sanitize_text_field( (string) ( $entry['resource_key'] ?? $entry['resource'] ?? '' ) ),
+						'hook'          => sanitize_text_field( (string) ( $entry['hook'] ?? $entry['execution_surface'] ?? '' ) ),
+						'mutation_kind' => sanitize_key( (string) ( $entry['mutation_kind'] ?? '' ) ),
+						'actor_slug'    => sanitize_key( (string) ( $entry['actor_slug'] ?? '' ) ),
+						'target_owner'  => sanitize_key( (string) ( $entry['target_owner_slug'] ?? '' ) ),
+					)
+				)
+			);
+
+			if ( isset( $seen[ $fingerprint ] ) ) {
+				continue;
+			}
+
+			$seen[ $fingerprint ] = true;
+			++$count;
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Checks whether an equivalent summary-level signal is already present.
+	 *
+	 * @param array<int, array<string, mixed>> $entries Existing entries.
+	 * @param array<string, mixed>              $candidate Candidate entry.
+	 * @return bool
+	 */
+	private function contains_equivalent_summary_signal( array $entries, array $candidate ): bool {
+		$candidate_fingerprint = $this->summary_fingerprint( $candidate );
+
+		foreach ( $entries as $entry ) {
+			if ( $candidate_fingerprint === $this->summary_fingerprint( $entry ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Determines whether a signal should contribute to the Error Signals summary card.
+	 *
+	 * @param array<string, mixed> $entry Signal entry.
+	 * @return bool
+	 */
+	private function should_count_entry_in_summary( array $entry ): bool {
+		$level       = strtolower( (string) ( $entry['level'] ?? '' ) );
+		$type        = sanitize_key( (string) ( $entry['type'] ?? '' ) );
+		$status_code = (int) ( $entry['status_code'] ?? 0 );
+		$failure_mode = sanitize_key( (string) ( $entry['failure_mode'] ?? '' ) );
+
+		if ( $this->is_trace_mutation_entry( $entry ) && $status_code < 400 && '' === $failure_mode ) {
+			return false;
+		}
+
+		if ( $status_code >= 400 || '' !== $failure_mode ) {
+			return true;
+		}
+
+		if ( in_array( $level, array( 'fatal error', 'warning', 'notice', 'deprecated', 'parse error', 'error' ), true ) ) {
+			return true;
+		}
+
+		if ( 'runtime' === $type || 'plugin-runtime' === $type ) {
+			return '' !== trim( (string) ( $entry['message'] ?? '' ) ) && 'info' !== $level;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Determines whether a signal should contribute to the Trace Warnings summary card.
+	 *
+	 * @param array<string, mixed> $entry Signal entry.
+	 * @return bool
+	 */
+	private function should_count_entry_in_trace_summary( array $entry ): bool {
+		if ( ! $this->is_trace_mutation_entry( $entry ) ) {
+			return false;
+		}
+
+		if ( (int) ( $entry['status_code'] ?? 0 ) >= 400 || '' !== sanitize_key( (string) ( $entry['failure_mode'] ?? '' ) ) ) {
+			return false;
+		}
+
+		$level           = strtolower( (string) ( $entry['level'] ?? '' ) );
+		$mutation_status = sanitize_key( (string) ( $entry['mutation_status'] ?? '' ) );
+
+		return in_array( $level, array( 'warning', 'error' ), true )
+			|| in_array( $mutation_status, array( TraceEvent::MUTATION_OBSERVED, TraceEvent::MUTATION_CONFIRMED ), true );
+	}
+
+	/**
+	 * Checks whether an entry is a trace-level mutation signal.
+	 *
+	 * @param array<string, mixed> $entry Signal entry.
+	 * @return bool
+	 */
+	private function is_trace_mutation_entry( array $entry ): bool {
+		return in_array(
+			sanitize_key( (string) ( $entry['type'] ?? '' ) ),
+			array( 'asset_lifecycle', 'asset_queue_mutation', 'asset_registry_mutation', 'callback_mutation' ),
+			true
+		);
+	}
+
+	/**
+	 * Builds a stable fingerprint for entry deduplication.
+	 *
+	 * @param array<string, mixed> $entry Signal entry.
+	 * @return string
+	 */
+	private function entry_fingerprint( array $entry ): string {
+		return md5(
+			wp_json_encode(
+				array(
+					'type'             => sanitize_key( (string) ( $entry['type'] ?? '' ) ),
+					'level'            => strtolower( (string) ( $entry['level'] ?? '' ) ),
+					'message'          => $this->normalize_log_message( (string) ( $entry['message'] ?? '' ) ),
+					'resource'         => sanitize_text_field( (string) ( $entry['resource'] ?? '' ) ),
+					'resource_key'     => sanitize_text_field( (string) ( $entry['resource_key'] ?? '' ) ),
+					'execution_surface'=> sanitize_text_field( (string) ( $entry['execution_surface'] ?? '' ) ),
+					'hook'             => sanitize_text_field( (string) ( $entry['hook'] ?? '' ) ),
+					'failure_mode'     => sanitize_key( (string) ( $entry['failure_mode'] ?? '' ) ),
+					'actor_slug'       => sanitize_key( (string) ( $entry['actor_slug'] ?? '' ) ),
+					'target_owner_slug'=> sanitize_key( (string) ( $entry['target_owner_slug'] ?? '' ) ),
+				)
+			)
+		);
+	}
+
+	/**
+	 * Builds a summary-level fingerprint so the dashboard count reflects distinct issues.
+	 *
+	 * @param array<string, mixed> $entry Signal entry.
+	 * @return string
+	 */
+	private function summary_fingerprint( array $entry ): string {
+		return md5(
+			wp_json_encode(
+				array(
+					'level'        => $this->normalize_summary_level( (string) ( $entry['level'] ?? '' ) ),
+					'message'      => $this->normalize_log_message( (string) ( $entry['message'] ?? '' ) ),
+					'failure_mode' => sanitize_key( (string) ( $entry['failure_mode'] ?? '' ) ),
+					'status_code'  => (int) ( $entry['status_code'] ?? 0 ),
+				)
+			)
+		);
+	}
+
+	/**
+	 * Normalizes heterogeneous level formats like PHP numeric severities for summary grouping.
+	 *
+	 * @param string $level Raw level.
+	 * @return string
+	 */
+	private function normalize_summary_level( string $level ): string {
+		$level = strtolower( trim( $level ) );
+
+		return match ( $level ) {
+			'1024' => 'notice',
+			'512'  => 'warning',
+			'256', '1' => 'error',
+			default => $level,
+		};
+	}
+
+	/**
+	 * Removes variable prefixes like timestamps from log lines before comparison.
+	 *
+	 * @param string $message Raw log message.
+	 * @return string
+	 */
+	private function normalize_log_message( string $message ): string {
+		$message = preg_replace( '/^\[[^\]]+\]\s*/', '', $message );
+		$message = preg_replace( '/^Repeated\s+\d+\s+times:\s*/i', '', (string) $message );
+		$message = preg_replace( '/^PHP\s+[A-Za-z ]+:\s*/', '', (string) $message );
+		$message = preg_replace( '/\s+in\s+.+?\s+on\s+line\s+\d+\s*$/i', '', (string) $message );
+		$message = is_string( $message ) ? $message : '';
+
+		return trim( preg_replace( '/\s+/', ' ', $message ) ?? '' );
 	}
 
 	/**

@@ -63,3 +63,42 @@ Expected result:
 4. Run Plugin Conflict Debugger.
 5. Confirm the finding category, severity, confidence, and wording match the expected outcome above.
 
+## LocalWP Workflow
+
+This repository includes a helper script to install the full fixture pack into the
+LocalWP test site used in this workspace:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\sync-fixture-plugins.ps1
+```
+
+That syncs every fixture plugin from `tests/fixtures/wp-plugins/` into:
+
+- `WordPress Site/app/public/wp-content/plugins/`
+
+After syncing, use the site-scoped WP-CLI wrapper to inspect or activate fixtures:
+
+```powershell
+.\WordPress Site\wp.bat plugin list
+.\WordPress Site\wp.bat plugin activate asset-owner-alpha asset-mutator-beta
+.\WordPress Site\wp.bat plugin deactivate asset-owner-alpha asset-mutator-beta
+```
+
+If you are using that LocalWP site, reset the lab between runs with:
+
+```powershell
+$php = 'C:\Users\Christo\AppData\Local\Programs\Local\resources\extraResources\lightning-services\php-8.2.29+0\bin\win64\php.exe'
+& $php -c '.\WordPress Site\tools\wp-cli\cli-php.ini' -r "require 'C:/Users/Christo/Documents/WordPress Plugin Development/Plugin Debug/WordPress Site/app/public/wp-load.php'; require 'C:/Users/Christo/Documents/WordPress Plugin Development/Plugin Debug/WordPress Site/tools/reset-pcd-lab.php';"
+```
+
+To replay a real authenticated admin request against that LocalWP site:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\WordPress Site\tools\invoke-pcd-admin-request.ps1
+```
+
+Recommended habit:
+
+- keep only `plugin-conflict-debugger` active for the clean baseline
+- activate one fixture scenario pair at a time
+- run a fresh scan after reproducing the relevant request path

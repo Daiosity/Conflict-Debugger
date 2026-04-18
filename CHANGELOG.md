@@ -2,6 +2,12 @@
 
 All notable changes to `Plugin Conflict Debugger` are tracked here.
 
+## 1.1.1
+
+- Split trace-level mutation warnings out of the main error-signal summary so asset and callback tracing no longer inflate the top-line runtime error count.
+- Boot the plugin early enough to capture callback-mutation baselines before later plugins alter sensitive hooks such as `template_redirect`.
+- Added repeatable LocalWP regression-lab helpers for resetting telemetry/debug logs and replaying authenticated admin requests against fixture scenarios.
+
 ## 1.1.0
 
 - Added focused validation mode controls so a developer can narrow telemetry to one plugin pair, hook, asset handle, REST route, or AJAX action before rerunning a scan.

@@ -257,7 +257,8 @@ final class Scanner {
 	private function build_summary( array $plugins, array $error_signals, array $findings ): array {
 		return array(
 			'active_plugins'   => count( $plugins ),
-			'error_signals'    => count( $error_signals['entries'] ?? array() ),
+			'error_signals'    => (int) ( $error_signals['summary_count'] ?? count( $error_signals['entries'] ?? array() ) ),
+			'trace_warnings'   => (int) ( $error_signals['trace_summary_count'] ?? 0 ),
 			'likely_conflicts' => count( $findings ),
 			'recent_changes'   => $this->change_tracker->count_recent_changes(),
 		);

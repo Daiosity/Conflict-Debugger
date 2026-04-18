@@ -107,6 +107,7 @@ final class ResultsRepository {
 			'summary'        => array(
 				'active_plugins'   => (int) ( $results['summary']['active_plugins'] ?? 0 ),
 				'error_signals'    => (int) ( $results['summary']['error_signals'] ?? 0 ),
+				'trace_warnings'   => (int) ( $results['summary']['trace_warnings'] ?? 0 ),
 				'likely_conflicts' => (int) ( $results['summary']['likely_conflicts'] ?? 0 ),
 				'recent_changes'   => (int) ( $results['summary']['recent_changes'] ?? 0 ),
 			),

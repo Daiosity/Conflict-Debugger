@@ -96,13 +96,18 @@ final class RuntimeMutationTracker {
 	 * @return void
 	 */
 	public function register(): void {
-		add_action( 'init', array( $this, 'capture_hook_baseline' ), 1 );
+		add_action( 'plugins_loaded', array( $this, 'capture_hook_baseline' ), 1 );
+		add_action( 'init', array( $this, 'capture_runtime_checkpoint' ), 1 );
 		add_action( 'wp_loaded', array( $this, 'capture_runtime_checkpoint' ), 999 );
 		add_action( 'shutdown', array( $this, 'capture_final_checkpoint' ), 997 );
 	}
 
 	/**
 	 * Captures an early hook baseline before late plugin mutations occur.
+	 *
+	 * Plugins have already loaded by this point, so callbacks registered in
+	 * plugin bootstrap code are visible, while later plugins_loaded removals
+	 * can still be observed by the next checkpoint.
 	 *
 	 * @return void
 	 */

@@ -4,7 +4,7 @@ Tags: diagnostics, debugging, plugins, conflicts, health
 Requires at least: 6.2
 Tested up to: 6.5
 Requires PHP: 8.1
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -49,6 +49,11 @@ No. If `debug.log` is unavailable, the plugin degrades gracefully and explains t
 The current architecture is prepared for safe test mode, binary-search auto-isolation, scheduled scans, alerts, and staging-only advanced diagnostics.
 
 == Changelog ==
+
+= 1.1.1 =
+- Split trace-level mutation warnings out of the Error Signals summary so asset and callback tracing no longer look like live PHP or request failures.
+- Boot the plugin early enough to capture callback mutation baselines before later plugins alter sensitive hooks like template_redirect.
+- Hardened LocalWP regression workflows with cleaner runtime reset behavior and validated asset mutation tracing against a real authenticated admin request path.
 
 = 1.1.0 =
 - Added focused validation mode controls so developers can narrow telemetry to one plugin pair, hook, asset handle, REST route, or AJAX action before rerunning a scan.

@@ -9,6 +9,7 @@ This task list keeps the next diagnostics milestones concrete and visible in the
 - [x] Callback mutation tracing foundation with request scope and partial actor attribution
 - [x] Callback mutation validation mode and deeper actor attribution
 - [x] Finding detail view that links one finding to its exact trace, evidence, and score caps
+- [x] LocalWP regression lab reset/request helpers for repeatable fixture runs
 
 ## Next Up
 
