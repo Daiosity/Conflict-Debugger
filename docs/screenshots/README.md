@@ -1,6 +1,6 @@
 # Screenshots
 
-Store portfolio-facing screenshots for the repository in this directory.
+Store product screenshots for the project in this directory.
 
 Recommended files:
 

@@ -2,11 +2,11 @@
 
 ![Daiosity Conflict Debugger icon](./assets/images/daiosity-conflict-debugger-icon.svg)
 
-Daiosity Conflict Debugger is a production-leaning WordPress diagnostics plugin focused on one job:
+Daiosity Conflict Debugger is a WordPress diagnostics plugin focused on one job:
 
 **helping site owners and developers find real plugin conflicts without wasting hours disabling plugins one by one.**
 
-This project is being built as a practical product, not a generic "site health" clone. The detector is intentionally conservative, context-aware, and designed to earn trust by preferring exact interference signals over vague overlap.
+The detector is intentionally conservative, context-aware, and built to prefer exact interference signals over vague overlap.
 
 ## Why This Exists
 
@@ -18,14 +18,14 @@ WordPress sites often break in ways that are expensive to trace:
 - checkout, login, editor, or routing behavior changes unexpectedly
 - several plugins appear suspicious, but no one knows where to start
 
-Most troubleshooting still depends on manual trial and error. This plugin is meant to shorten that path by surfacing:
+Most troubleshooting still depends on manual trial and error. Daiosity Conflict Debugger shortens that path by surfacing:
 
 - where overlap is happening
 - what shared resource may be involved
 - which request context is affected
 - whether the finding is weak, contextual, concrete, or observed breakage
 
-## Product Positioning
+## What Makes It Different
 
 **Promise:** Find likely plugin conflicts before you waste hours disabling plugins manually.
 
@@ -33,7 +33,7 @@ Most troubleshooting still depends on manual trial and error. This plugin is mea
 
 That means the detector does **not** treat common WordPress behavior as proof of conflict. Shared hooks, broad plugin categories, recent updates, and extreme priorities are weak signals only. High-confidence findings require concrete interference or observed breakage.
 
-## Current Feature Set
+## Features
 
 ### Core scanning
 
@@ -70,20 +70,6 @@ That means the detector does **not** treat common WordPress behavior as proof of
 - runtime events viewer
 - focused diagnostic session workflow for reproducing one issue path at a time
 - focused validation mode for one plugin pair, hook, asset handle, REST route, or AJAX action
-
-## Screenshots
-
-UI screenshots live in [`docs/screenshots/`](./docs/screenshots/).
-
-Recommended gallery for the repo:
-
-- dashboard overview
-- findings tab with evidence-rich results
-- diagnostics tab with runtime events
-- plugin drilldown view
-- focused diagnostic session workflow
-
-This keeps the repository ready for portfolio presentation without cluttering the source tree.
 
 ## How The Detector Works
 
@@ -125,7 +111,7 @@ Severity is capped deliberately:
 
 ### WordPress Admin upload
 
-1. Download the WordPress admin package from the project build output or release.
+1. Download the latest WordPress admin package from [GitHub Releases](https://github.com/Daiosity/Conflict-Debugger/releases).
 2. In WordPress, go to `Plugins > Add New > Upload Plugin`.
 3. Upload the ZIP package.
 4. Activate **Daiosity Conflict Debugger**.
@@ -143,14 +129,14 @@ Then activate it from the WordPress admin.
 
 ## Releases
 
-This repository includes a GitHub Actions workflow that can build release-ready plugin ZIP packages.
+Release packages are published here:
+
+- [GitHub Releases](https://github.com/Daiosity/Conflict-Debugger/releases)
 
 Release outputs:
 
 - `daiosity-conflict-debugger-wp-admin.zip`
 - `daiosity-conflict-debugger.zip`
-
-The workflow can be triggered manually or from version tags, which makes the repository easier to maintain and present professionally.
 
 ## Regression Fixtures
 
@@ -162,7 +148,11 @@ Detector regression fixtures live in [`tests/fixtures/`](./tests/fixtures/). The
 - REST route collision
 - AJAX action collision
 
-These fixtures are meant to keep detector trust high as the heuristics and tracing layers evolve. In this workspace, the LocalWP test site also includes helper scripts for resetting telemetry/debug logs and replaying authenticated admin requests so fixture runs stay repeatable.
+These fixtures are meant to keep detector trust high as the heuristics and tracing layers evolve. The repository also includes LocalWP helper scripts for resetting telemetry, clearing debug logs, and replaying authenticated admin requests during repeatable test runs.
+
+## Screenshots
+
+Example UI screenshots can be stored in [`docs/screenshots/`](./docs/screenshots/).
 
 ## Repository Structure
 
@@ -188,7 +178,7 @@ daiosity-conflict-debugger/
 
 - PHP 8.1+ compatible
 - namespaced OOP architecture
-- WordPress coding standards mindset
+- WordPress-oriented coding standards
 - capability checks, nonces, sanitization, and escaping throughout admin actions
 - premium-ready structure without faking premium functionality
 
@@ -200,9 +190,9 @@ Near-term priorities:
 - scan diff UX that highlights new findings, resolved findings, and confidence changes
 - deeper exact ownership mapping
 - improved plugin-focused diagnostics
+- safer staging-oriented isolation workflows
 
 See [TASKS.md](./TASKS.md) for the actively maintained implementation list.
-- safer staging-oriented isolation workflows
 
 Longer-term premium-oriented direction:
 
@@ -213,17 +203,7 @@ Longer-term premium-oriented direction:
 
 ## Changelog
 
-Project release history lives in:
+Release history lives in:
 
 - [`CHANGELOG.md`](./CHANGELOG.md)
 - [`readme.txt`](./readme.txt)
-
-## Repository Hygiene
-
-This repository is maintained as a real product project and portfolio-quality codebase. Changes should favor:
-
-- trustworthy diagnostics over noisy heuristics
-- clean structure over quick fixes
-- meaningful documentation
-- specific commit history
-- practical product value

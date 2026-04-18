@@ -1,6 +1,6 @@
 # Daiosity Conflict Debugger Task List
 
-This task list keeps the next diagnostics milestones concrete and visible in the repository.
+This task list keeps the next diagnostics milestones concrete and visible.
 
 ## Current Focus
 
@@ -21,7 +21,7 @@ This task list keeps the next diagnostics milestones concrete and visible in the
 ## Product Polish
 
 - [ ] Add real dashboard screenshots to `docs/screenshots/`
-- [ ] Tag the first GitHub release with packaged install ZIP assets
+- [ ] Refine GitHub release notes and packaged asset presentation
 - [ ] Add GitHub labels and milestones for detector, telemetry, UI, packaging, and docs work
 
 ## Premium-Ready Follow-Up
