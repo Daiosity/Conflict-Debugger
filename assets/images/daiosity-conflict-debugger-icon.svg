@@ -1,0 +1,56 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="pcd-bg" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="0.55" stop-color="#143B62"/>
+      <stop offset="1" stop-color="#0EA5A8"/>
+    </linearGradient>
+    <linearGradient id="pcd-card-a" x1="172" y1="180" x2="264" y2="276" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5EEAD4"/>
+      <stop offset="1" stop-color="#14B8A6"/>
+    </linearGradient>
+    <linearGradient id="pcd-card-b" x1="240" y1="210" x2="334" y2="308" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#EA580C"/>
+    </linearGradient>
+    <filter id="pcd-shadow" x="36" y="28" width="440" height="456" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="18"/>
+      <feGaussianBlur stdDeviation="20"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0313726 0 0 0 0 0.0705882 0 0 0 0 0.129412 0 0 0 0.28 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#pcd-shadow)">
+    <rect x="64" y="48" width="384" height="384" rx="88" fill="url(#pcd-bg)"/>
+    <circle cx="152" cy="136" r="12" fill="#7DD3FC" fill-opacity="0.3"/>
+    <circle cx="366" cy="122" r="9" fill="#F8FAFC" fill-opacity="0.22"/>
+    <circle cx="392" cy="170" r="14" fill="#5EEAD4" fill-opacity="0.18"/>
+    <circle cx="122" cy="340" r="18" fill="#0EA5A8" fill-opacity="0.18"/>
+
+    <circle cx="244" cy="220" r="106" fill="#F8FAFC" fill-opacity="0.08"/>
+    <circle cx="244" cy="220" r="93" fill="#F8FAFC" fill-opacity="0.04" stroke="#E2E8F0" stroke-opacity="0.28" stroke-width="2"/>
+
+    <rect x="166" y="174" width="122" height="92" rx="26" fill="url(#pcd-card-a)"/>
+    <rect x="166" y="174" width="122" height="92" rx="26" fill="white" fill-opacity="0.08"/>
+    <rect x="222" y="206" width="124" height="94" rx="26" fill="url(#pcd-card-b)"/>
+    <rect x="222" y="206" width="124" height="94" rx="26" fill="white" fill-opacity="0.06"/>
+
+    <path d="M252 176V269" stroke="#E6FFFB" stroke-width="12" stroke-linecap="round" stroke-opacity="0.9"/>
+    <path d="M207 221H300" stroke="#E6FFFB" stroke-width="12" stroke-linecap="round" stroke-opacity="0.9"/>
+
+    <path d="M281 195L303 222L289 223L302 248L270 224L285 223L265 199L281 195Z" fill="#F43F5E"/>
+    <path d="M281 195L303 222L289 223L302 248L270 224L285 223L265 199L281 195Z" fill="white" fill-opacity="0.1"/>
+
+    <circle cx="244" cy="220" r="118" stroke="#F8FAFC" stroke-width="18"/>
+    <path d="M324 302L389 367" stroke="#F8FAFC" stroke-width="28" stroke-linecap="round"/>
+    <path d="M324 302L389 367" stroke="#0F172A" stroke-opacity="0.22" stroke-width="10" stroke-linecap="round"/>
+
+    <path d="M161 119C176 103 196 92 219 88" stroke="#F8FAFC" stroke-opacity="0.34" stroke-width="10" stroke-linecap="round"/>
+    <path d="M370 273C362 291 350 307 335 320" stroke="#F8FAFC" stroke-opacity="0.28" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
