@@ -446,7 +446,7 @@ final class AssetLifecycleTracer {
 		) {
 			return array(
 				'actor_slug'          => $owner_slug,
-				'attribution_status'  => TraceEvent::ATTRIBUTION_DIRECT,
+				'attribution_status'  => TraceEvent::ATTRIBUTION_PARTIAL,
 			);
 		}
 
@@ -467,7 +467,8 @@ final class AssetLifecycleTracer {
 		if ( 1 === count( $filtered_candidates ) ) {
 			return array(
 				'actor_slug'         => $filtered_candidates[0],
-				'attribution_status' => 0 === strpos( $phase, 'after_priority_' ) ? TraceEvent::ATTRIBUTION_DIRECT : TraceEvent::ATTRIBUTION_PARTIAL,
+				// A priority boundary does not identify the callback that made the change.
+				'attribution_status' => TraceEvent::ATTRIBUTION_PARTIAL,
 			);
 		}
 
@@ -781,7 +782,7 @@ final class AssetLifecycleTracer {
 			return '/';
 		}
 
-		return sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) );
+		return DiagnosticPrivacy::path( sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) ) );
 	}
 
 	/**

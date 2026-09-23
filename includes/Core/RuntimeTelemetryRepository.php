@@ -42,7 +42,7 @@ final class RuntimeTelemetryRepository {
 	 */
 	public function record_event( array $event ): void {
 		$events      = $this->get_events( self::MAX_EVENTS );
-		$event       = $this->sanitize_event( $event );
+		$event       = DiagnosticPrivacy::scrub( $this->sanitize_event( DiagnosticPrivacy::scrub( $event ) ) );
 		$fingerprint = $this->build_fingerprint( $event );
 
 		foreach ( $events as $existing ) {
@@ -70,7 +70,7 @@ final class RuntimeTelemetryRepository {
 	 */
 	public function record_request_context( array $context ): void {
 		$contexts    = $this->get_request_contexts( self::MAX_CONTEXTS );
-		$context     = $this->sanitize_context( $context );
+		$context     = DiagnosticPrivacy::scrub( $this->sanitize_context( DiagnosticPrivacy::scrub( $context ) ) );
 		$fingerprint = $this->build_fingerprint( $context );
 
 		foreach ( $contexts as $existing ) {
@@ -100,7 +100,7 @@ final class RuntimeTelemetryRepository {
 		$events = get_option( self::EVENTS_OPTION, array() );
 		$events = is_array( $events ) ? $events : array();
 
-		return array_slice( $events, 0, max( 1, $limit ) );
+		return DiagnosticPrivacy::scrub( array_slice( $events, 0, max( 1, $limit ) ) );
 	}
 
 	/**
@@ -113,7 +113,7 @@ final class RuntimeTelemetryRepository {
 		$contexts = get_option( self::CONTEXTS_OPTION, array() );
 		$contexts = is_array( $contexts ) ? $contexts : array();
 
-		return array_slice( $contexts, 0, max( 1, $limit ) );
+		return DiagnosticPrivacy::scrub( array_slice( $contexts, 0, max( 1, $limit ) ) );
 	}
 
 	/**
@@ -161,6 +161,7 @@ final class RuntimeTelemetryRepository {
 			'attribution_status'   => sanitize_key( (string) ( $event['attribution_status'] ?? TraceEvent::ATTRIBUTION_UNKNOWN ) ),
 			'contamination_status' => sanitize_key( (string) ( $event['contamination_status'] ?? TraceEvent::CONTAMINATION_NONE ) ),
 			'actor_slug'           => sanitize_key( (string) ( $event['actor_slug'] ?? '' ) ),
+			'actor_callback'       => sanitize_text_field( (string) ( $event['actor_callback'] ?? '' ) ),
 			'target_owner_slug'    => sanitize_key( (string) ( $event['target_owner_slug'] ?? '' ) ),
 			'status_code'          => (int) ( $event['status_code'] ?? 0 ),
 			'session_id'           => sanitize_text_field( (string) ( $event['session_id'] ?? '' ) ),

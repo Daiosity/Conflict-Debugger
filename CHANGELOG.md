@@ -2,6 +2,37 @@
 
 All notable changes to `Daiosity Conflict Debugger` are tracked here.
 
+## 1.3.0
+
+- Added evidence assessment before scoring, classification and display. Shared registrations no longer count as strong proof without a captured actor/resource mutation path.
+- Require explicit actor callback, distinct resource owner, request ID, concrete resource, context and trusted server source for direct proof. Same-trace failure claims must also pass these gates.
+- Downgrade asset priority-boundary snapshots to partial attribution; no inferred actor is presented as directly observed.
+- Keep each selected case scoped to one resource and request, rank accepted proof before noisy surfaces, and prevent reworded observations from inflating scores.
+- Compare REST methods, including WordPress's HEAD fallback, while preserving registration order. Disjoint GET/POST handlers are not a collision.
+- Stop mutation evidence from implicating incidental owners or treating ordinary PHP errors as asset mutations.
+- Preserve actor, request and REST method metadata when merging evidence; attach runtime failures to their own surface rather than every surface for the plugin pair.
+- Add evidence assessment reasons and request identifiers to finding details, with staging-only REST validation recommendations.
+- Expand regression coverage for proof gates, method-aware REST analysis, resource/request isolation and pair attribution.
+
+## 1.2.1
+
+- Restrict browser reports to administrators with nonce verification, payload limits and allowed event types; browser input cannot assign mutation attribution.
+- Redact request queries, URL credentials, common credential assignments and email addresses from stored telemetry; bound diagnostic records and provide a protected delete-data action.
+- Require a request ID for same-trace runtime matching and exclude browser-only reports from confirmed server-side causality.
+- Remove unused Pro placeholders and cancel pending jobs on deactivation and uninstall, including multisite uninstall cleanup.
+- Make both ZIP filenames standard WordPress installers with stable timestamps and sorted entries.
+- Add privacy/security regression coverage and document local diagnostic data handling for directory review.
+
+## 1.2.0
+
+- Centralized conflict trust rules in `FindingPolicy` so category, severity, confidence ceilings, actor attribution, contamination, observer behavior, and common-admin normalization have one source of truth.
+- Tightened direct-proof handling: common hook coexistence is supporting evidence, while asset and callback mutations require direct actor attribution before they can become high-severity findings.
+- Added stable finding identities plus new, resolved, and materially changed scan comparisons without identity churn when category or severity changes.
+- Added multi-source log discovery for `WP_DEBUG_LOG`, the configured PHP error log, and filtered custom log paths, with source-aware diagnostics in the admin UI.
+- Added policy regression coverage for admin overlap, unknown/partial/direct mutation attribution, pair-specific runtime breakage, and scan comparison behavior.
+- Removed the obsolete detector-local hard-gating implementation so future trust-policy changes cannot diverge across code paths.
+- Added GitHub Actions checks for PHP 8.1-8.3 linting, policy regressions, and deterministic package-layout validation.
+
 ## 1.1.4
 
 - Renamed the public plugin identity to `Daiosity Conflict Debugger` and the distributable slug to `daiosity-conflict-debugger`.

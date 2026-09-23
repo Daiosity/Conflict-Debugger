@@ -129,22 +129,10 @@ final class ResultsRepository {
 	 * @return array<int, array<string, mixed>>
 	 */
 	private function build_findings_snapshot( array $findings ): array {
-		$snapshot = array();
-
-		foreach ( array_slice( $findings, 0, 25 ) as $finding ) {
-			$snapshot[] = array(
-				'signature'             => $this->finding_signature( $finding ),
-				'title'                 => sanitize_text_field( (string) ( $finding['title'] ?? '' ) ),
-				'severity'              => sanitize_key( (string) ( $finding['severity'] ?? 'info' ) ),
-				'confidence'            => (int) ( $finding['confidence'] ?? 0 ),
-				'primary_plugin_name'   => sanitize_text_field( (string) ( $finding['primary_plugin_name'] ?? '' ) ),
-				'secondary_plugin_name' => sanitize_text_field( (string) ( $finding['secondary_plugin_name'] ?? '' ) ),
-				'request_context'       => sanitize_text_field( (string) ( $finding['request_context'] ?? '' ) ),
-				'finding_type'          => sanitize_key( (string) ( $finding['finding_type'] ?? '' ) ),
-			);
-		}
-
-		return $snapshot;
+		return array_map(
+			static fn( array $finding ): array => FindingSignature::snapshot( $finding ),
+			array_slice( $findings, 0, 25 )
+		);
 	}
 
 	/**
@@ -168,25 +156,4 @@ final class ResultsRepository {
 		return $snapshot;
 	}
 
-	/**
-	 * Builds a stable finding signature for scan comparisons.
-	 *
-	 * @param array<string, mixed> $finding Finding.
-	 * @return string
-	 */
-	private function finding_signature( array $finding ): string {
-		return md5(
-			wp_json_encode(
-				array(
-					'primary_plugin'   => sanitize_key( (string) ( $finding['primary_plugin'] ?? '' ) ),
-					'secondary_plugin' => sanitize_key( (string) ( $finding['secondary_plugin'] ?? '' ) ),
-					'surface_key'      => sanitize_key( (string) ( $finding['surface_key'] ?? $finding['issue_category'] ?? '' ) ),
-					'finding_type'     => sanitize_key( (string) ( $finding['finding_type'] ?? '' ) ),
-					'request_context'  => sanitize_text_field( (string) ( $finding['request_context'] ?? '' ) ),
-					'shared_resource'  => sanitize_text_field( (string) ( $finding['shared_resource'] ?? '' ) ),
-					'execution_surface'=> sanitize_text_field( (string) ( $finding['execution_surface'] ?? '' ) ),
-				)
-			)
-		);
-	}
 }

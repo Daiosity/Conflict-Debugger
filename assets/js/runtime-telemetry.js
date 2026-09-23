@@ -4,6 +4,7 @@
 	}
 
 	const sent = new Set();
+	const reportFetch = window.fetch ? window.fetch.bind(window) : null;
 
 	function sameOrigin(url) {
 		try {
@@ -58,7 +59,7 @@
 
 	function send(payload) {
 		const key = fingerprint(payload);
-		if (sent.has(key)) {
+		if (sent.has(key) || sent.size >= 20) {
 			return;
 		}
 
@@ -92,7 +93,10 @@
 			return;
 		}
 
-		fetch(pcdRuntime.ajaxUrl, {
+		if (!reportFetch) {
+			return;
+		}
+		reportFetch(pcdRuntime.ajaxUrl, {
 			method: 'POST',
 			credentials: 'same-origin',
 			headers: {

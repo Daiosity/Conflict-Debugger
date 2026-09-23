@@ -45,16 +45,27 @@ final class ErrorCollector {
 	private ValidationModeRepository $validation;
 
 	/**
+	 * Log path resolver.
+	 *
+	 * @var LogLocator
+	 */
+	private LogLocator $log_locator;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param Logger                     $logger Runtime logger.
-	 * @param RuntimeTelemetryRepository $telemetry Telemetry repository.
+	 * @param Logger                      $logger Runtime logger.
+	 * @param RuntimeTelemetryRepository  $telemetry Telemetry repository.
+	 * @param DiagnosticSessionRepository $sessions Diagnostic session repository.
+	 * @param ValidationModeRepository    $validation Validation mode repository.
+	 * @param LogLocator                  $log_locator Log path resolver.
 	 */
-	public function __construct( Logger $logger, RuntimeTelemetryRepository $telemetry, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation ) {
-		$this->logger    = $logger;
-		$this->telemetry = $telemetry;
-		$this->sessions  = $sessions;
-		$this->validation = $validation;
+	public function __construct( Logger $logger, RuntimeTelemetryRepository $telemetry, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation, LogLocator $log_locator ) {
+		$this->logger      = $logger;
+		$this->telemetry   = $telemetry;
+		$this->sessions    = $sessions;
+		$this->validation  = $validation;
+		$this->log_locator = $log_locator;
 	}
 
 	/**
@@ -169,7 +180,7 @@ final class ErrorCollector {
 			$signals['notes'][] = __( 'Recent request contexts were captured and included in this analysis.', 'daiosity-conflict-debugger' );
 		}
 
-		$signals['entries']             = $this->deduplicate_entries( $signals['entries'] );
+		$signals['entries']             = $this->deduplicate_entries( DiagnosticPrivacy::scrub( $signals['entries'] ) );
 		$signals['summary_count']       = $this->count_meaningful_entries( $signals['entries'] );
 		$signals['trace_summary_count'] = $this->count_trace_summary_entries( $signals['entries'] );
 
@@ -186,33 +197,37 @@ final class ErrorCollector {
 	 * @return array<string, mixed>
 	 */
 	private function build_log_access_report(): array {
-		$path             = $this->resolve_debug_log_path();
+		$inspection       = $this->log_locator->inspect();
+		$selected         = is_array( $inspection['selected'] ?? null ) ? $inspection['selected'] : array();
+		$candidates       = is_array( $inspection['candidates'] ?? null ) ? $inspection['candidates'] : array();
+		$path             = sanitize_text_field( (string) ( $selected['path'] ?? '' ) );
+		$source           = sanitize_key( (string) ( $selected['source'] ?? '' ) );
+		$source_label     = sanitize_text_field( (string) ( $selected['label'] ?? '' ) );
 		$wp_debug         = defined( 'WP_DEBUG' ) && WP_DEBUG;
 		$wp_debug_log     = defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG;
 		$open_basedir     = (string) ini_get( 'open_basedir' );
-		$path_exists      = '' !== (string) $path && file_exists( (string) $path );
-		$path_readable    = '' !== (string) $path && is_readable( (string) $path );
-		$path_writable    = '' !== (string) $path && ( $path_exists ? wp_is_writable( (string) $path ) : wp_is_writable( dirname( (string) $path ) ) );
+		$path_exists      = ! empty( $selected['exists'] );
+		$path_readable    = ! empty( $selected['readable'] );
+		$path_writable    = ! empty( $selected['writable'] );
 		$status           = 'available';
-		$status_message   = __( 'Debug log is enabled and readable.', 'daiosity-conflict-debugger' );
+		$status_message   = __( 'A local diagnostic log is available and readable.', 'daiosity-conflict-debugger' );
 		$recommendations  = array();
 
-		if ( ! $wp_debug_log ) {
+		if ( empty( $candidates ) ) {
 			$status         = 'disabled';
-			$status_message = __( 'WP_DEBUG_LOG is disabled, so WordPress is not writing a direct debug log for this plugin to read.', 'daiosity-conflict-debugger' );
-			$recommendations[] = __( 'Enable WP_DEBUG_LOG in wp-config.php to create a readable WordPress debug log.', 'daiosity-conflict-debugger' );
-		} elseif ( '' === (string) $path ) {
-			$status         = 'unresolved';
-			$status_message = __( 'The debug log path could not be resolved from the current WordPress configuration.', 'daiosity-conflict-debugger' );
-			$recommendations[] = __( 'Check whether WP_DEBUG_LOG points to a valid file path or boolean true.', 'daiosity-conflict-debugger' );
+			$status_message = __( 'No local WordPress or PHP log path could be resolved.', 'daiosity-conflict-debugger' );
+			$recommendations[] = __( 'Enable WP_DEBUG_LOG, configure a local PHP error_log path, or provide a path with the PluginConflictDebugger/log_paths filter.', 'daiosity-conflict-debugger' );
 		} elseif ( ! $path_exists ) {
 			$status         = 'missing';
-			$status_message = __( 'Debug logging is enabled, but the log file does not exist yet.', 'daiosity-conflict-debugger' );
+			$status_message = __( 'A diagnostic log path was resolved, but the file does not exist yet.', 'daiosity-conflict-debugger' );
 			$recommendations[] = __( 'Trigger a PHP notice or warning in staging, or verify that the web server can create the log file.', 'daiosity-conflict-debugger' );
 		} elseif ( ! $path_readable ) {
 			$status         = 'unreadable';
-			$status_message = __( 'The debug log exists but is not readable by the current PHP process.', 'daiosity-conflict-debugger' );
+			$status_message = __( 'The selected diagnostic log exists but is not readable by the current PHP process.', 'daiosity-conflict-debugger' );
 			$recommendations[] = __( 'Check file ownership, permissions, and any open_basedir restrictions on the server.', 'daiosity-conflict-debugger' );
+		} elseif ( 'php_error_log' === $source && ! $wp_debug_log ) {
+			$status_message = __( 'The PHP error log is readable. WordPress debug logging is disabled, so WordPress-specific notices may be less complete.', 'daiosity-conflict-debugger' );
+			$recommendations[] = __( 'Enable WP_DEBUG_LOG in staging when you need complete WordPress notice and warning coverage.', 'daiosity-conflict-debugger' );
 		}
 
 		if ( '' !== $open_basedir ) {
@@ -222,32 +237,18 @@ final class ErrorCollector {
 		return array(
 			'status'          => $status,
 			'status_message'  => $status_message,
-			'path'            => $path ? (string) $path : '',
+			'path'            => $path,
+			'source'          => $source,
+			'source_label'    => $source_label,
 			'wp_debug'        => $wp_debug,
 			'wp_debug_log'    => $wp_debug_log,
 			'exists'          => $path_exists,
 			'readable'        => $path_readable,
 			'writable'        => $path_writable,
 			'open_basedir'    => $open_basedir,
+			'candidates'      => $candidates,
 			'recommendations' => $recommendations,
 		);
-	}
-
-	/**
-	 * Resolves debug.log path when enabled.
-	 *
-	 * @return string|null
-	 */
-	private function resolve_debug_log_path(): ?string {
-		if ( ! defined( 'WP_DEBUG_LOG' ) || ! WP_DEBUG_LOG ) {
-			return null;
-		}
-
-		if ( is_string( WP_DEBUG_LOG ) ) {
-			return WP_DEBUG_LOG;
-		}
-
-		return trailingslashit( WP_CONTENT_DIR ) . 'debug.log';
 	}
 
 	/**

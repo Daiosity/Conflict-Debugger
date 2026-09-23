@@ -52,13 +52,23 @@ final class ConflictDetector {
 	private RegistrySnapshot $registry;
 
 	/**
+	 * Pairwise finding trust policy.
+	 *
+	 * @var FindingPolicy
+	 */
+	private FindingPolicy $finding_policy;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param Heuristics $heuristics Heuristic scorer.
+	 * @param Heuristics       $heuristics Heuristic scorer.
+	 * @param RegistrySnapshot $registry Registry snapshot collector.
+	 * @param FindingPolicy    $finding_policy Pairwise finding trust policy.
 	 */
-	public function __construct( Heuristics $heuristics, RegistrySnapshot $registry ) {
-		$this->heuristics = $heuristics;
-		$this->registry   = $registry;
+	public function __construct( Heuristics $heuristics, RegistrySnapshot $registry, FindingPolicy $finding_policy ) {
+		$this->heuristics     = $heuristics;
+		$this->registry       = $registry;
+		$this->finding_policy = $finding_policy;
 	}
 
 	/**
@@ -139,6 +149,15 @@ final class ConflictDetector {
 							'same_trace'        => ! empty( $observed_entry['same_trace'] ),
 							'failure_mode'      => sanitize_key( (string) ( $observed_entry['failure_mode'] ?? '' ) ),
 							'contaminated'      => ! empty( $observed_entry['contaminated'] ),
+							'request_id'        => (string) ( $observed_entry['request_id'] ?? '' ),
+							'evidence_source'   => (string) ( $observed_entry['evidence_source'] ?? '' ),
+							'actor_slug'        => (string) ( $observed_entry['actor_slug'] ?? '' ),
+							'target_owner_slug' => (string) ( $observed_entry['target_owner_slug'] ?? '' ),
+							'actor_callback'    => (string) ( $observed_entry['actor_callback'] ?? '' ),
+							'attribution_status' => (string) ( $observed_entry['attribution_status'] ?? '' ),
+							'mutation_status'   => (string) ( $observed_entry['mutation_status'] ?? '' ),
+							'mutation_kind'     => (string) ( $observed_entry['mutation_kind'] ?? '' ),
+							'resource_type'     => (string) ( $observed_entry['resource_type'] ?? '' ),
 						)
 					);
 
@@ -189,11 +208,23 @@ final class ConflictDetector {
 				}
 
 				$best_surface_key  = '';
+				// Runtime observations belong to their own surface, not every surface in a pair.
+				foreach ( $global_evidence as $index => $item ) {
+					if ( ! in_array( (string) $item['signal_key'], array( 'pair_specific_runtime_breakage', 'generic_runtime_noise', 'third_party_contamination' ), true ) ) {
+						continue;
+					}
+					$runtime_surface = in_array( (string) ( $item['resource_type'] ?? '' ), array( 'script_handle', 'style_handle' ), true )
+						? 'asset_loading' : $this->surface_for_context( (string) $item['request_context'] );
+					$item['surface'] = $runtime_surface;
+					$this->add_surface_evidence( $surface_map, $runtime_surface, (string) $item['signal_key'], (string) $item['message'], (string) $item['strength'], $item );
+					unset( $global_evidence[ $index ] );
+				}
 				$best_surface_data = array();
 				$best_score        = 0;
 				$best_severity     = 'info';
 				$best_category     = 'overlap';
 				$best_evidence     = array();
+				$best_proof_rank   = -1;
 
 				foreach ( $surface_map as $surface_key => $surface_data ) {
 					if ( empty( $surface_data['evidence_items'] ) ) {
@@ -219,6 +250,7 @@ final class ConflictDetector {
 					}
 
 					$evidence_items = $this->enrich_evidence_items( $evidence_items, (string) $surface_key );
+					$evidence_items = array_map( array( EvidenceAssessment::class, 'normalize' ), $evidence_items );
 					$evidence_items = $this->deduplicate_evidence_items( $evidence_items );
 					$evidence_items = $this->select_primary_context_evidence( $evidence_items );
 					$score          = $this->heuristics->score_evidence_items( $evidence_items );
@@ -228,14 +260,17 @@ final class ConflictDetector {
 
 					$severity = $this->heuristics->severity_for( $evidence_items, $score );
 					$category = $this->heuristics->finding_type_for( $evidence_items );
+					$breakdown = $this->heuristics->evidence_breakdown( $evidence_items );
+					$proof_rank = ! empty( $breakdown['runtime_breakage'] ) ? 2 : ( ! empty( $breakdown['strong_proof'] ) ? 1 : 0 );
 
 					if (
-						$score > $best_score ||
+						$proof_rank > $best_proof_rank ||
 						(
-							$score === $best_score &&
-							$this->heuristics->severity_rank( $severity ) > $this->heuristics->severity_rank( $best_severity )
+							$proof_rank === $best_proof_rank && ( $score > $best_score ||
+								( $score === $best_score && $this->heuristics->severity_rank( $severity ) > $this->heuristics->severity_rank( $best_severity ) ) )
 						)
 					) {
+						$best_proof_rank   = $proof_rank;
 						$best_score        = $score;
 						$best_surface_key  = (string) $surface_key;
 						$best_surface_data = $surface_data;
@@ -249,19 +284,22 @@ final class ConflictDetector {
 					continue;
 				}
 
-				$has_pair_specific_causality = $this->has_pair_specific_causality( $best_evidence );
+				$has_pair_specific_causality = $this->finding_policy->has_pair_specific_causality( $best_evidence );
 
 				if ( ! empty( $observer_pattern ) && ! $has_pair_specific_causality ) {
 					continue;
 				}
 
-				list( $best_category, $best_severity, $best_score ) = $this->normalize_pairwise_classification(
+				$policy_result = $this->finding_policy->evaluate(
 					$best_category,
 					$best_severity,
 					$best_score,
 					$best_evidence,
 					$observer_involved
 				);
+				$best_category = (string) $policy_result['category'];
+				$best_severity = (string) $policy_result['severity'];
+				$best_score    = (int) $policy_result['confidence'];
 
 				$surface_meta      = $this->surfaces[ $best_surface_key ] ?? array();
 				$shared_resource   = $this->find_shared_resource( $best_evidence );
@@ -283,6 +321,8 @@ final class ConflictDetector {
 					'severity'                          => $best_severity,
 					'status'                            => $this->heuristics->ui_status_for( $best_severity ),
 					'confidence'                        => $best_score,
+					'confidence_ceiling'                => (int) ( $policy_result['confidence_ceiling'] ?? 100 ),
+					'trust_factors'                     => is_array( $policy_result['trust_factors'] ?? null ) ? $policy_result['trust_factors'] : array(),
 					'category'                          => $best_category,
 					'finding_type'                      => $best_category,
 					'shared_resource'                   => $shared_resource,
@@ -573,8 +613,8 @@ final class ConflictDetector {
 						$pair_key = $this->build_pair_key( $slug_a, $slug_b );
 						$hook_profile      = $this->heuristics->hook_profile( $hook_name );
 						$hook_risk         = (string) ( $hook_profile['risk'] ?? 'noise' );
-						$is_exact_surface  = in_array( (string) $matched_hook['signal_key'], array( 'ajax_action_overlap', 'exact_hook_collision' ), true );
-						$evidence_tier     = $is_exact_surface ? 'strong_proof' : ( in_array( $hook_risk, array( 'supporting', 'strong_capable' ), true ) ? 'supporting' : 'noise' );
+						$is_exact_surface  = 'ajax_action_overlap' === (string) $matched_hook['signal_key'];
+						$evidence_tier     = $is_exact_surface ? 'strong_proof' : ( in_array( $hook_risk, array( 'supporting', 'strong_capable' ), true ) || 'exact_hook_collision' === (string) $matched_hook['signal_key'] ? 'supporting' : 'noise' );
 						$evidence_strength = 'strong_proof' === $evidence_tier ? 'concrete' : ( 'supporting' === $evidence_tier ? 'context' : 'weak' );
 
 						$this->add_analysis_item(
@@ -721,41 +761,41 @@ final class ConflictDetector {
 		$routes  = method_exists( $server, 'get_routes' ) ? $server->get_routes() : array();
 
 		foreach ( $routes as $route => $handlers ) {
-			$plugin_slugs = array();
+			$owned_handlers = array();
 
 			foreach ( (array) $handlers as $handler ) {
+				if ( ! is_array( $handler ) ) {
+					continue;
+				}
 				$slug = $this->resolve_plugin_slug_from_callback( $handler['callback'] ?? null );
 				if ( $slug ) {
-					$plugin_slugs[ $slug ] = true;
+					$owned_handlers[] = array( 'owner_slug' => $slug, 'methods' => $handler['methods'] ?? array() );
 				}
 			}
 
-			$slugs = array_keys( $plugin_slugs );
-			if ( count( $slugs ) < 2 ) {
-				continue;
-			}
-
-			for ( $i = 0, $count = count( $slugs ); $i < $count; $i++ ) {
-				for ( $j = $i + 1; $j < $count; $j++ ) {
-					$pair_key = $this->build_pair_key( $slugs[ $i ], $slugs[ $j ] );
-					$this->add_analysis_item(
-						$results,
-						$pair_key,
-						'rest_api_ajax',
-						'rest_route_overlap',
-						sprintf(
-							/* translators: %s REST route. */
-							__( 'Both plugins register callbacks against the same REST route family: %s.', 'daiosity-conflict-debugger' ),
-							$route
-						),
-						'concrete',
-						array(
-							'tier'            => 'concrete',
-							'request_context' => $this->request_context_for_surface( 'rest_api_ajax' ),
-							'shared_resource' => (string) $route,
-						)
-					);
-				}
+			foreach ( ( new RestRouteInspector() )->overlaps( $owned_handlers ) as $overlap ) {
+				$this->add_analysis_item(
+					$results,
+					$this->build_pair_key( $overlap['first_owner'], $overlap['next_owner'] ),
+					'rest_api_ajax',
+					'rest_route_overlap',
+					sprintf(
+						/* translators: 1: REST route, 2: HTTP methods, 3: first plugin, 4: later plugin. */
+						__( 'REST route %1$s has overlapping handlers for %2$s: %3$s is registered before %4$s. Dispatch order may matter; incompatible behavior and failed responses have not been established.', 'daiosity-conflict-debugger' ),
+						$route,
+						implode( ', ', $overlap['methods'] ),
+						$overlap['first_owner'],
+						$overlap['next_owner']
+					),
+					'context',
+					array(
+						'tier'              => 'supporting',
+						'request_context'   => 'rest',
+						'execution_surface' => 'rest_api_init',
+						'shared_resource'   => (string) $route,
+						'http_methods'      => $overlap['methods'],
+					)
+				);
 			}
 		}
 
@@ -988,6 +1028,9 @@ final class ConflictDetector {
 
 		foreach ( $entries as $entry ) {
 			$type         = sanitize_key( (string) ( $entry['type'] ?? '' ) );
+			if ( ! in_array( $type, array( 'callback_mutation', 'asset_queue_mutation', 'asset_registry_mutation', 'asset_lifecycle' ), true ) ) {
+				continue;
+			}
 			$mutation_kind = sanitize_key( (string) ( $entry['mutation_kind'] ?? '' ) );
 			$actor_slug   = sanitize_key( (string) ( $entry['actor_slug'] ?? '' ) );
 			$target_owner = sanitize_key( (string) ( $entry['target_owner_slug'] ?? '' ) );
@@ -1037,6 +1080,10 @@ final class ConflictDetector {
 				$strength = 'context';
 			}
 
+			// Incidental owners in a trace are not additional mutator/victim pairs.
+			if ( '' !== $actor_slug && '' !== $target_owner ) {
+				$owner_slugs = array_values( array_unique( array( $actor_slug, $target_owner ) ) );
+			}
 			for ( $i = 0, $count = count( $owner_slugs ); $i < $count; $i++ ) {
 				for ( $j = $i + 1; $j < $count; $j++ ) {
 					$this->add_analysis_item(
@@ -1054,6 +1101,15 @@ final class ConflictDetector {
 							'pair_specific'   => '' !== $actor_slug && '' !== $target_owner,
 							'attribution_status' => $attribution_status,
 							'mutation_status' => $mutation_status,
+							'actor_slug' => $actor_slug,
+							'target_owner_slug' => $target_owner,
+							'actor_callback' => (string) ( $entry['actor_callback'] ?? '' ),
+							'request_id' => (string) ( $entry['request_id'] ?? '' ),
+							'event_id' => (string) ( $entry['event_id'] ?? '' ),
+							'sequence' => (int) ( $entry['sequence'] ?? 0 ),
+							'evidence_source' => (string) ( $entry['evidence_source'] ?? '' ),
+							'contamination_status' => (string) ( $entry['contamination_status'] ?? '' ),
+							'mutation_kind' => $mutation_kind,
 						)
 					);
 				}
@@ -1066,9 +1122,8 @@ final class ConflictDetector {
 	/**
 	 * Adds pair findings from exact registry entries with distinct owners.
 	 *
-	 * Exact registry collisions should score as strong evidence because the
-	 * plugins are competing for the same key or route, not merely sharing a
-	 * general category.
+	 * Shared keys identify a validation target, not incompatible behavior.
+	 * EvidenceAssessment requires a captured mutation before accepting proof.
 	 *
 	 * @param array<string, array<string, array<string, mixed>>> $results Analysis results.
 	 * @param array<int, array<string, mixed>>                   $registrations Registry entries.
@@ -1311,7 +1366,7 @@ final class ConflictDetector {
 			$resource_match       = $this->entry_resource_hints_match_plugins( $entry, $slug_a, $slug_b );
 			$owner_match          = in_array( $slug_a, $entry_owners, true ) && in_array( $slug_b, $entry_owners, true );
 			$failure_mode         = $this->entry_failure_mode( $entry );
-			$same_trace           = '' !== sanitize_text_field( (string) ( $entry['request_context'] ?? '' ) ) && ( $resource_match || $owner_match || $matched >= 2 );
+			$same_trace           = '' !== sanitize_text_field( (string) ( $entry['request_id'] ?? '' ) ) && '' !== sanitize_text_field( (string) ( $entry['request_context'] ?? '' ) ) && ( $resource_match || $owner_match );
 			$pair_specific        = $resource_match || $this->entry_has_pair_specific_resource( $entry );
 			$direct_pair_mutation = $this->entry_has_direct_pair_mutation( $entry, $slug_a, $slug_b );
 			$contaminated         = $this->entry_is_third_party_contaminated( $entry, $slug_a, $slug_b, $owner_match, $resource_match );
@@ -1330,7 +1385,22 @@ final class ConflictDetector {
 				}
 			}
 
-			$is_pair_specific_runtime = ! $contaminated && $same_trace && ( $direct_pair_mutation || ( $pair_specific && $resource_match && $owner_match ) );
+			$assessment = EvidenceAssessment::normalize(
+				array_merge(
+					$entry,
+					array(
+						'signal_key' => 'pair_specific_runtime_breakage',
+						'tier' => 'runtime_breakage',
+						'pair_specific' => $direct_pair_mutation,
+						'same_trace' => $same_trace,
+						'failure_mode' => $failure_mode,
+						'contaminated' => $contaminated,
+						'shared_resource' => $this->summarize_observed_resource( $entry ),
+						'execution_surface' => $this->execution_surface_for_entry( $entry ),
+					)
+				)
+			);
+			$is_pair_specific_runtime = ! empty( $assessment['proof_accepted'] );
 
 			if ( ! $is_pair_specific_runtime && $matched < 2 && ! $owner_match && ! $resource_match ) {
 				continue;
@@ -1599,7 +1669,6 @@ final class ConflictDetector {
 	 * @return bool
 	 */
 	private function entry_has_direct_pair_mutation( array $entry, string $slug_a, string $slug_b ): bool {
-		$signal_type    = sanitize_key( (string) ( $entry['type'] ?? '' ) );
 		$mutation_kind  = sanitize_key( (string) ( $entry['mutation_kind'] ?? '' ) );
 		$actor_slug     = sanitize_key( (string) ( $entry['actor_slug'] ?? '' ) );
 		$target_owner   = sanitize_key( (string) ( $entry['target_owner_slug'] ?? '' ) );
@@ -1625,14 +1694,14 @@ final class ConflictDetector {
 			&& in_array( $actor_slug, array( $slug_a, $slug_b ), true )
 			&& in_array( $target_owner, array( $slug_a, $slug_b ), true )
 			&& $actor_slug !== $target_owner
-			&& in_array( $attribution, array( 'attribution_direct', 'attribution_partial' ), true );
+			&& TraceEvent::ATTRIBUTION_DIRECT === $attribution
+			&& '' !== (string) ( $entry['actor_callback'] ?? '' );
 
 		if ( $direct_pair_actor && in_array( $mutation_kind, array( 'asset_dequeued', 'asset_deregistered', 'asset_src_changed', 'asset_dependency_changed', 'asset_version_changed', 'asset_group_changed', 'asset_media_changed', 'callback_removed', 'callback_replaced' ), true ) ) {
 			return true;
 		}
 
-		return in_array( $signal_type, array( 'asset_queue_mutation', 'asset_registry_mutation' ), true )
-			|| 'asset_state_mutation' === $mutation_kind;
+		return false;
 	}
 
 	/**
@@ -1715,305 +1784,6 @@ final class ConflictDetector {
 		$mutation_kind = sanitize_key( (string) ( $entry['mutation_kind'] ?? '' ) );
 
 		return 'callback_mutation' === $type || in_array( $mutation_kind, array( 'callback_chain_churn', 'callback_priority_changed' ), true );
-	}
-
-	/**
-	 * Normalizes pairwise classification with stricter causality gates.
-	 *
-	 * @param string                           $finding_type Finding type.
-	 * @param string                           $severity Severity.
-	 * @param int                              $score Confidence score.
-	 * @param array<int, array<string, mixed>> $evidence_items Evidence items.
-	 * @param bool                             $observer_involved Whether an observer plugin is involved.
-	 * @return array{0:string,1:string,2:int}
-	 */
-	private function normalize_pairwise_classification( string $finding_type, string $severity, int $score, array $evidence_items, bool $observer_involved ): array {
-		$has_pair_specific = $this->has_pair_specific_causality( $evidence_items );
-		$can_confirm       = $this->can_confirm_pairwise_conflict( $evidence_items );
-		$has_contextual    = $this->has_evidence_tier( $evidence_items, 'supporting' );
-		$has_strong_proof  = $this->has_evidence_tier( $evidence_items, 'strong_proof' );
-		$has_pair_runtime  = $this->has_signal_key( $evidence_items, 'pair_specific_runtime_breakage' );
-		$has_generic_runtime = $this->has_signal_key( $evidence_items, 'generic_runtime_noise' );
-		$strong_proof_count  = (int) ( $this->heuristics->evidence_breakdown( $evidence_items )['strong_proof'] ?? 0 );
-		$is_admin_noise      = $this->is_mostly_common_admin_overlap( $evidence_items );
-		$has_admin_resource_proof = $this->has_admin_resource_proof( $evidence_items );
-		$has_contamination   = $this->has_third_party_contamination( $evidence_items );
-
-		if ( ! $has_pair_specific && ! $has_strong_proof ) {
-			$finding_type = $has_contextual ? 'shared_surface' : 'overlap';
-			$severity     = $has_contextual ? 'medium' : 'low';
-			$score        = min( $score, $has_contextual ? 55 : 30 );
-		}
-
-		if ( 'confirmed_conflict' === $finding_type && ! $can_confirm ) {
-			$finding_type = $has_pair_specific ? 'probable_conflict' : 'potential_interference';
-			$severity     = $has_pair_specific ? 'high' : 'medium';
-			$score        = min( $score, $has_pair_specific ? 90 : 75 );
-		}
-
-		if ( $observer_involved && ! $can_confirm ) {
-			$severity = $this->heuristics->severity_rank( $severity ) > $this->heuristics->severity_rank( 'medium' ) ? 'medium' : $severity;
-			$score    = min( $score, $has_pair_specific ? 70 : 45 );
-			if ( in_array( $finding_type, array( 'probable_conflict', 'confirmed_conflict' ), true ) ) {
-				$finding_type = $has_pair_specific ? 'potential_interference' : 'shared_surface';
-			}
-		}
-
-		if ( 0 === $strong_proof_count && ! $has_pair_runtime ) {
-			if ( $this->heuristics->severity_rank( $severity ) > $this->heuristics->severity_rank( 'medium' ) ) {
-				$severity = 'medium';
-			}
-
-			if ( in_array( $finding_type, array( 'probable_conflict', 'confirmed_conflict' ), true ) ) {
-				$finding_type = $has_generic_runtime ? 'potential_interference' : ( $has_contextual ? 'shared_surface' : 'overlap' );
-			}
-		}
-
-		if ( $is_admin_noise && ! $has_admin_resource_proof ) {
-			$finding_type = $has_generic_runtime ? 'potential_interference' : 'shared_surface';
-			$severity     = $this->heuristics->severity_rank( $severity ) > $this->heuristics->severity_rank( 'medium' ) ? 'medium' : $severity;
-			$score        = min( $score, 50 );
-		}
-
-		if ( $has_contamination && ! $has_pair_runtime ) {
-			$finding_type = $has_contextual || $has_generic_runtime ? 'potential_interference' : 'shared_surface';
-			$severity     = $this->heuristics->severity_rank( $severity ) > $this->heuristics->severity_rank( 'medium' ) ? 'medium' : $severity;
-			$score        = min( max( 0, $score - 18 ), 50 );
-		}
-
-		$score = min( $score, $this->confidence_ceiling_for_category( $finding_type, $strong_proof_count > 0, $has_pair_runtime, $is_admin_noise, $has_contamination ) );
-
-		return array( $finding_type, $severity, $score );
-	}
-
-	/**
-	 * Checks whether evidence contains pair-specific causality.
-	 *
-	 * @param array<int, array<string, mixed>> $evidence_items Evidence items.
-	 * @return bool
-	 */
-	private function has_pair_specific_causality( array $evidence_items ): bool {
-		$pair_specific_signals = array(
-			'rest_route_overlap',
-			'ajax_action_overlap',
-			'routing_overlap',
-			'content_model_overlap',
-			'asset_state_mutation',
-			'direct_callback_mutation',
-			'pair_specific_runtime_breakage',
-		);
-
-		foreach ( $evidence_items as $evidence_item ) {
-			$signal_key      = sanitize_key( (string) ( $evidence_item['signal_key'] ?? '' ) );
-			$shared_resource = sanitize_text_field( (string) ( $evidence_item['shared_resource'] ?? '' ) );
-			if ( in_array( $signal_key, $pair_specific_signals, true ) && '' !== $shared_resource ) {
-				return true;
-			}
-
-			if ( ! empty( $evidence_item['pair_specific'] ) && '' !== $shared_resource ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Checks whether evidence can support a pairwise confirmed finding.
-	 *
-	 * @param array<int, array<string, mixed>> $evidence_items Evidence items.
-	 * @return bool
-	 */
-	private function can_confirm_pairwise_conflict( array $evidence_items ): bool {
-		$has_observed_pair_breakage = false;
-		$has_exact_interference     = false;
-
-		foreach ( $evidence_items as $evidence_item ) {
-			if ( 'pair_specific_runtime_breakage' === sanitize_key( (string) ( $evidence_item['signal_key'] ?? '' ) ) && ! empty( $evidence_item['same_trace'] ) && '' !== (string) ( $evidence_item['shared_resource'] ?? '' ) ) {
-				return true;
-			}
-
-			if ( ! empty( $evidence_item['pair_specific'] ) && ! empty( $evidence_item['same_trace'] ) && '' !== (string) ( $evidence_item['failure_mode'] ?? '' ) ) {
-				$has_observed_pair_breakage = true;
-			}
-
-			if ( in_array( sanitize_key( (string) ( $evidence_item['signal_key'] ?? '' ) ), array( 'rest_route_overlap', 'ajax_action_overlap', 'routing_overlap', 'content_model_overlap', 'asset_state_mutation', 'direct_callback_mutation' ), true ) && '' !== (string) ( $evidence_item['shared_resource'] ?? '' ) ) {
-				$has_exact_interference = true;
-			}
-		}
-
-		return $has_observed_pair_breakage && $has_exact_interference;
-	}
-
-	/**
-	 * Returns whether evidence contains a given tier.
-	 *
-	 * @param array<int, array<string, mixed>> $evidence_items Evidence items.
-	 * @param string                           $tier Tier.
-	 * @return bool
-	 */
-	private function has_evidence_tier( array $evidence_items, string $tier ): bool {
-		$tier = $this->heuristics->normalize_tier( $tier );
-
-		foreach ( $evidence_items as $evidence_item ) {
-			if ( $tier === $this->heuristics->normalize_tier( (string) ( $evidence_item['tier'] ?? '' ) ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Returns whether evidence contains a signal key.
-	 *
-	 * @param array<int, array<string, mixed>> $evidence_items Evidence items.
-	 * @param string                           $signal_key Signal key.
-	 * @return bool
-	 */
-	private function has_signal_key( array $evidence_items, string $signal_key ): bool {
-		foreach ( $evidence_items as $evidence_item ) {
-			if ( $signal_key === sanitize_key( (string) ( $evidence_item['signal_key'] ?? '' ) ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Returns whether evidence is dominated by common admin lifecycle hooks.
-	 *
-	 * @param array<int, array<string, mixed>> $evidence_items Evidence items.
-	 * @return bool
-	 */
-	private function is_mostly_common_admin_overlap( array $evidence_items ): bool {
-		$admin_hooks = array(
-			'admin_menu',
-			'admin_init',
-			'current_screen',
-			'admin_enqueue_scripts',
-			'load-post.php',
-			'load-edit.php',
-			'load-post-new.php',
-		);
-
-		$admin_count  = 0;
-		$normal_count = 0;
-
-		foreach ( $evidence_items as $evidence_item ) {
-			$request_context   = strtolower( (string) ( $evidence_item['request_context'] ?? '' ) );
-			$execution_surface = strtolower( (string) ( $evidence_item['execution_surface'] ?? '' ) );
-			if ( false === strpos( $request_context, 'admin' ) ) {
-				continue;
-			}
-
-			$admin_count++;
-			if ( in_array( $execution_surface, $admin_hooks, true ) ) {
-				$normal_count++;
-			}
-		}
-
-		return $admin_count >= 2 && $normal_count >= max( 2, $admin_count - 1 );
-	}
-
-	/**
-	 * Returns whether admin evidence contains a concrete shared resource.
-	 *
-	 * @param array<int, array<string, mixed>> $evidence_items Evidence items.
-	 * @return bool
-	 */
-	private function has_admin_resource_proof( array $evidence_items ): bool {
-		$non_resource_hooks = array(
-			'admin_menu',
-			'admin_init',
-			'current_screen',
-			'admin_enqueue_scripts',
-			'load-post.php',
-			'load-edit.php',
-			'load-post-new.php',
-		);
-		$allowed_signals = array(
-			'admin_screen_overlap',
-			'asset_state_mutation',
-			'direct_callback_mutation',
-			'pair_specific_runtime_breakage',
-		);
-
-		foreach ( $evidence_items as $evidence_item ) {
-			$request_context = strtolower( (string) ( $evidence_item['request_context'] ?? '' ) );
-			$resource        = strtolower( (string) ( $evidence_item['shared_resource'] ?? '' ) );
-			$tier            = $this->heuristics->normalize_tier( (string) ( $evidence_item['tier'] ?? '' ) );
-			$signal_key      = sanitize_key( (string) ( $evidence_item['signal_key'] ?? '' ) );
-
-			if ( false === strpos( $request_context, 'admin' ) || '' === $resource || 'strong_proof' !== $tier ) {
-				continue;
-			}
-
-			if ( in_array( $resource, $non_resource_hooks, true ) ) {
-				continue;
-			}
-
-			if ( in_array( $signal_key, $allowed_signals, true ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Returns whether evidence includes contamination signals.
-	 *
-	 * @param array<int, array<string, mixed>> $evidence_items Evidence items.
-	 * @return bool
-	 */
-	private function has_third_party_contamination( array $evidence_items ): bool {
-		foreach ( $evidence_items as $evidence_item ) {
-			if ( ! empty( $evidence_item['contaminated'] ) || 'third_party_contamination' === sanitize_key( (string) ( $evidence_item['signal_key'] ?? '' ) ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Returns a category-based confidence ceiling.
-	 *
-	 * @param string $category Finding category.
-	 * @param bool   $has_strong_proof Whether strong proof exists.
-	 * @param bool   $has_pair_runtime Whether pair-specific runtime breakage exists.
-	 * @param bool   $is_admin_noise Whether common admin overlap dominates.
-	 * @param bool   $has_contamination Whether contamination exists.
-	 * @return int
-	 */
-	private function confidence_ceiling_for_category( string $category, bool $has_strong_proof, bool $has_pair_runtime, bool $is_admin_noise, bool $has_contamination ): int {
-		$ceilings = array(
-			'overlap'                => 35,
-			'shared_surface'         => 50,
-			'potential_interference' => 65,
-			'probable_conflict'      => $has_strong_proof ? 85 : 65,
-			'confirmed_conflict'     => $has_pair_runtime ? 100 : 85,
-			'observer_artifact'      => 55,
-			'global_anomaly'         => 60,
-		);
-
-		$ceiling = $ceilings[ $category ] ?? 65;
-
-		if ( ! $has_strong_proof ) {
-			$ceiling = min( $ceiling, 65 );
-		}
-
-		if ( $is_admin_noise ) {
-			$ceiling = min( $ceiling, 50 );
-		}
-
-		if ( $has_contamination ) {
-			$ceiling = min( $ceiling, 50 );
-		}
-
-		return $ceiling;
 	}
 
 	/**
@@ -2562,6 +2332,16 @@ final class ConflictDetector {
 	 * @return string
 	 */
 	private function build_recommended_next_step( string $surface_key, string $request_context, string $execution_surface, string $shared_resource, array $evidence_items ): string {
+		foreach ( $evidence_items as $item ) {
+			if ( 'rest_route_overlap' === ( $item['signal_key'] ?? '' ) ) {
+				return sprintf(
+					/* translators: 1: REST route, 2: HTTP methods. */
+					__( 'In staging, compare the handler order and permission callbacks for %1$s using %2$s with the same authentication state. Compare response status and body with each plugin enabled separately. Do not replay write requests on production.', 'daiosity-conflict-debugger' ),
+					$shared_resource,
+					implode( ', ', (array) ( $item['http_methods'] ?? array() ) )
+				);
+			}
+		}
 		if ( $this->evidence_has_signal( $evidence_items, array( 'direct_callback_mutation' ) ) ) {
 			return sprintf(
 				/* translators: 1: hook or execution surface, 2: callback label or shared resource, 3: request context. */
@@ -2652,44 +2432,7 @@ final class ConflictDetector {
 	 * @return array<int, array<string, mixed>>
 	 */
 	private function select_primary_context_evidence( array $evidence_items ): array {
-		$generic_contexts = array( '', 'runtime', 'generic site behavior' );
-		$generic_items    = array();
-		$context_groups   = array();
-
-		foreach ( $evidence_items as $evidence_item ) {
-			$request_context = strtolower( trim( (string) ( $evidence_item['request_context'] ?? '' ) ) );
-			if ( in_array( $request_context, $generic_contexts, true ) ) {
-				$generic_items[] = $evidence_item;
-				continue;
-			}
-
-			$context_groups[ $request_context ][] = $evidence_item;
-		}
-
-		if ( empty( $context_groups ) ) {
-			return $evidence_items;
-		}
-
-		$best_context = '';
-		$best_score   = -1;
-		$best_items   = $evidence_items;
-
-		foreach ( $context_groups as $context => $items ) {
-			$candidate_items = array_merge( $items, $generic_items );
-			$candidate_score = $this->heuristics->score_evidence_items( $candidate_items );
-
-			if ( $candidate_score > $best_score ) {
-				$best_score   = $candidate_score;
-				$best_context = (string) $context;
-				$best_items   = $candidate_items;
-			}
-		}
-
-		if ( '' === $best_context ) {
-			return $evidence_items;
-		}
-
-		return $best_items;
+		return ( new EvidenceScope() )->select( $evidence_items, $this->heuristics );
 	}
 
 	/**
@@ -2912,12 +2655,7 @@ final class ConflictDetector {
 					(string) ( $evidence_item['signal_key'] ?? 'surface_context_match' ),
 					(string) ( $evidence_item['message'] ?? '' ),
 					(string) ( $evidence_item['strength'] ?? 'medium' ),
-					array(
-						'tier'            => (string) ( $evidence_item['tier'] ?? '' ),
-						'request_context' => (string) ( $evidence_item['request_context'] ?? '' ),
-						'shared_resource' => (string) ( $evidence_item['shared_resource'] ?? '' ),
-						'execution_surface' => (string) ( $evidence_item['execution_surface'] ?? '' ),
-					)
+					$evidence_item
 				);
 			}
 		}
@@ -2989,7 +2727,7 @@ final class ConflictDetector {
 		$seen   = array();
 
 		foreach ( $evidence_items as $evidence_item ) {
-			$key = (string) ( $evidence_item['surface'] ?? '' ) . '|' . (string) ( $evidence_item['signal_key'] ?? '' ) . '|' . (string) ( $evidence_item['message'] ?? '' );
+			$key = wp_json_encode( array_intersect_key( $evidence_item, array_flip( array( 'surface', 'signal_key', 'message', 'shared_resource', 'request_context', 'request_id', 'event_id', 'tier', 'actor_slug', 'target_owner_slug' ) ) ) );
 			if ( isset( $seen[ $key ] ) || '' === (string) ( $evidence_item['message'] ?? '' ) ) {
 				continue;
 			}

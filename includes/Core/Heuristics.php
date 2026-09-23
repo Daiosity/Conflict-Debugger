@@ -45,7 +45,7 @@ final class Heuristics {
 		'seo_overlap'                => 10,
 		'email_overlap'              => 10,
 		'security_overlap'           => 10,
-		'exact_hook_collision'       => 18,
+		'exact_hook_collision'       => 15,
 		'rest_route_overlap'         => 30,
 		'ajax_action_overlap'        => 30,
 		'routing_overlap'            => 24,
@@ -86,7 +86,7 @@ final class Heuristics {
 		'seo_overlap'                => 'supporting',
 		'email_overlap'              => 'supporting',
 		'security_overlap'           => 'supporting',
-		'exact_hook_collision'       => 'strong_proof',
+		'exact_hook_collision'       => 'supporting',
 		'rest_route_overlap'         => 'strong_proof',
 		'ajax_action_overlap'        => 'strong_proof',
 		'routing_overlap'            => 'strong_proof',
@@ -265,7 +265,8 @@ final class Heuristics {
 			$signal_key      = (string) ( $evidence_item['signal_key'] ?? '' );
 			$shared_resource = (string) ( $evidence_item['shared_resource'] ?? '' );
 			$tier            = $this->normalize_tier( (string) ( $evidence_item['tier'] ?? $this->tier_for( $signal_key ) ) );
-			$fingerprint     = $signal_key . '|' . $shared_resource . '|' . (string) ( $evidence_item['message'] ?? '' );
+			// Different wording or timestamps do not make an observation independent proof.
+			$fingerprint     = wp_json_encode( array( $signal_key, $shared_resource, $evidence_item['request_context'] ?? '', $evidence_item['execution_surface'] ?? '', $evidence_item['mutation_kind'] ?? '', $tier ) );
 
 			if ( isset( $seen[ $fingerprint ] ) ) {
 				continue;
@@ -388,13 +389,13 @@ final class Heuristics {
 
 		if ( 'shared_surface' === $category ) {
 			return 0 === $strong_count
-				? __( 'Scored as a shared surface because the finding is driven by common lifecycle overlap and supporting context only. No pair-specific mutation evidence was observed.', 'daiosity-conflict-debugger' )
+				? __( 'Scored as a shared surface because only shared registrations, lifecycle overlap, or supporting context were established. No pair-specific incompatible mutation was proven.', 'daiosity-conflict-debugger' )
 				: __( 'Scored as a shared surface because the plugins overlap in the same context, but no exact shared resource or direct mutation was proven.', 'daiosity-conflict-debugger' );
 		}
 
 		if ( 'potential_interference' === $category ) {
 			return 0 === $strong_count
-				? __( 'Scored as potential interference because supporting indicators cluster on one request path, but no pair-specific mutation evidence was observed.', 'daiosity-conflict-debugger' )
+				? __( 'Scored as potential interference because a resource anomaly or supporting indicators were observed. The mutating callback and a causal link to breakage have not been established.', 'daiosity-conflict-debugger' )
 				: __( 'Scored as potential interference because supporting indicators cluster in one request context, but the proof is still incomplete.', 'daiosity-conflict-debugger' );
 		}
 
