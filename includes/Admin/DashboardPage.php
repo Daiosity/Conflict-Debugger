@@ -812,7 +812,7 @@ final class DashboardPage {
 
 													<?php if ( ! empty( $evidence_items ) ) : ?>
 														<div class="pcd-finding-detail-section">
-															<h4><?php esc_html_e( 'Evidence Timeline', 'daiosity-conflict-debugger' ); ?></h4>
+															<h4><?php esc_html_e( 'Evidence Review', 'daiosity-conflict-debugger' ); ?></h4>
 															<div class="pcd-finding-evidence-list">
 																<?php foreach ( $evidence_items as $evidence_item ) : ?>
 																	<article class="pcd-finding-evidence-item">
@@ -826,6 +826,12 @@ final class DashboardPage {
 																			<?php endif; ?>
 																		</div>
 																		<p><?php echo esc_html( (string) ( $evidence_item['message'] ?? '' ) ); ?></p>
+																		<?php if ( ! empty( $evidence_item['assessment_reason'] ) ) : ?>
+																			<p class="pcd-actionability-note"><?php echo esc_html( (string) $evidence_item['assessment_reason'] ); ?></p>
+																		<?php endif; ?>
+																		<?php if ( ! empty( $evidence_item['request_id'] ) ) : ?>
+																			<p class="pcd-actionability-note"><?php echo esc_html( $this->format_labeled_value( __( 'Request trace', 'daiosity-conflict-debugger' ), (string) $evidence_item['request_id'] ) ); ?></p>
+																		<?php endif; ?>
 																		<?php if ( ! empty( $evidence_item['shared_resource'] ) ) : ?>
 																			<p class="pcd-actionability-note"><?php echo esc_html( $this->format_labeled_value( __( 'Shared resource', 'daiosity-conflict-debugger' ), (string) $evidence_item['shared_resource'] ) ); ?></p>
 																		<?php endif; ?>

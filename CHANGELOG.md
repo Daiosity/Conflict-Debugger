@@ -2,6 +2,18 @@
 
 All notable changes to `Daiosity Conflict Debugger` are tracked here.
 
+## 1.3.0
+
+- Added evidence assessment before scoring, classification and display. Shared registrations no longer count as strong proof without a captured actor/resource mutation path.
+- Require explicit actor callback, distinct resource owner, request ID, concrete resource, context and trusted server source for direct proof. Same-trace failure claims must also pass these gates.
+- Downgrade asset priority-boundary snapshots to partial attribution; no inferred actor is presented as directly observed.
+- Keep each selected case scoped to one resource and request, rank accepted proof before noisy surfaces, and prevent reworded observations from inflating scores.
+- Compare REST methods, including WordPress's HEAD fallback, while preserving registration order. Disjoint GET/POST handlers are not a collision.
+- Stop mutation evidence from implicating incidental owners or treating ordinary PHP errors as asset mutations.
+- Preserve actor, request and REST method metadata when merging evidence; attach runtime failures to their own surface rather than every surface for the plugin pair.
+- Add evidence assessment reasons and request identifiers to finding details, with staging-only REST validation recommendations.
+- Expand regression coverage for proof gates, method-aware REST analysis, resource/request isolation and pair attribution.
+
 ## 1.2.1
 
 - Restrict browser reports to administrators with nonce verification, payload limits and allowed event types; browser input cannot assign mutation attribution.

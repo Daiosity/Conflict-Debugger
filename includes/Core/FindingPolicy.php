@@ -22,18 +22,6 @@ final class FindingPolicy {
 	private Heuristics $heuristics;
 
 	/**
-	 * Exact resource signals that can establish pair-specific interference.
-	 *
-	 * @var string[]
-	 */
-	private const EXACT_RESOURCE_SIGNALS = array(
-		'rest_route_overlap',
-		'ajax_action_overlap',
-		'routing_overlap',
-		'content_model_overlap',
-	);
-
-	/**
 	 * Common admin lifecycle hooks that should not stack into high confidence.
 	 *
 	 * @var string[]
@@ -68,6 +56,7 @@ final class FindingPolicy {
 	 * @return array<string, mixed>
 	 */
 	public function evaluate( string $category, string $severity, int $confidence, array $evidence_items, bool $observer_involved ): array {
+		$confidence = max( 0, min( 100, $confidence ) );
 		$facts = $this->summarize_evidence( $evidence_items );
 
 		if ( ! $facts['pair_specific_causality'] && ! $facts['actionable_proof'] ) {
@@ -159,11 +148,11 @@ final class FindingPolicy {
 	 * @return array<string, mixed>
 	 */
 	private function summarize_evidence( array $evidence_items ): array {
+		$evidence_items        = array_map( array( EvidenceAssessment::class, 'normalize' ), $evidence_items );
 		$breakdown             = $this->heuristics->evidence_breakdown( $evidence_items );
 		$has_supporting        = false;
 		$has_generic_runtime   = false;
 		$pair_runtime          = false;
-		$exact_resource_proof  = false;
 		$direct_attribution    = false;
 		$partial_attribution   = false;
 		$unattributed_mutation = false;
@@ -179,34 +168,28 @@ final class FindingPolicy {
 			$context           = strtolower( sanitize_text_field( (string) ( $evidence_item['request_context'] ?? '' ) ) );
 			$execution_surface = strtolower( sanitize_text_field( (string) ( $evidence_item['execution_surface'] ?? '' ) ) );
 			$attribution       = sanitize_key( (string) ( $evidence_item['attribution_status'] ?? '' ) );
-			$mutation_status   = sanitize_key( (string) ( $evidence_item['mutation_status'] ?? '' ) );
 			$item_pair_runtime = false;
-			$item_exact_proof  = false;
 			$item_attribution  = false;
 
 			$has_supporting      = $has_supporting || 'supporting' === $tier;
 			$has_generic_runtime = $has_generic_runtime || 'generic_runtime_noise' === $signal_key;
-			$contaminated        = $contaminated || ! empty( $evidence_item['contaminated'] ) || 'third_party_contamination' === $signal_key;
+			$contaminated        = $contaminated || ! empty( $evidence_item['contaminated'] ) || 'third_party_contamination' === $signal_key || TraceEvent::CONTAMINATION_HIGH === ( $evidence_item['contamination_status'] ?? '' );
 
-			if ( 'pair_specific_runtime_breakage' === $signal_key && ! empty( $evidence_item['same_trace'] ) && '' !== $resource && '' !== (string) ( $evidence_item['failure_mode'] ?? '' ) ) {
+			if ( 'runtime_breakage' === $tier && ! empty( $evidence_item['proof_accepted'] ) ) {
 				$pair_runtime      = true;
 				$item_pair_runtime = true;
+				$direct_attribution = true;
 			}
 
-			if ( in_array( $signal_key, self::EXACT_RESOURCE_SIGNALS, true ) && '' !== $resource ) {
-				$exact_resource_proof = true;
-				$item_exact_proof     = true;
-			}
-
-			if ( 'direct_callback_mutation' === $signal_key && ! empty( $evidence_item['pair_specific'] ) && '' !== $resource && TraceEvent::ATTRIBUTION_DIRECT === $attribution ) {
+			if ( 'direct_callback_mutation' === $signal_key && ! empty( $evidence_item['proof_accepted'] ) ) {
 				$direct_attribution = true;
 				$item_attribution   = true;
-			} elseif ( 'direct_callback_mutation' === $signal_key && '' !== $resource && TraceEvent::ATTRIBUTION_PARTIAL === $attribution ) {
-				$partial_attribution   = true;
+			} elseif ( 'direct_callback_mutation' === $signal_key && '' !== $resource ) {
+				$partial_attribution   = $partial_attribution || TraceEvent::ATTRIBUTION_PARTIAL === $attribution;
 				$unattributed_mutation = true;
 			}
 
-			if ( 'asset_state_mutation' === $signal_key && ! empty( $evidence_item['pair_specific'] ) && '' !== $resource && TraceEvent::ATTRIBUTION_DIRECT === $attribution && in_array( $mutation_status, array( TraceEvent::MUTATION_OBSERVED, TraceEvent::MUTATION_CONFIRMED ), true ) ) {
+			if ( 'asset_state_mutation' === $signal_key && ! empty( $evidence_item['proof_accepted'] ) ) {
 				$direct_attribution = true;
 				$item_attribution   = true;
 			} elseif ( 'asset_state_mutation' === $signal_key && '' !== $resource && TraceEvent::ATTRIBUTION_PARTIAL === $attribution ) {
@@ -222,20 +205,19 @@ final class FindingPolicy {
 					$common_admin_count++;
 				}
 
-				if ( '' !== $resource && ! in_array( strtolower( $resource ), self::COMMON_ADMIN_HOOKS, true ) && ( $item_exact_proof || $item_attribution || $item_pair_runtime ) ) {
+				if ( '' !== $resource && ! in_array( strtolower( $resource ), self::COMMON_ADMIN_HOOKS, true ) && ( $item_attribution || $item_pair_runtime ) ) {
 					$admin_resource_proof = true;
 				}
 			}
 		}
 
-		$actionable_proof = $exact_resource_proof || $direct_attribution || $pair_runtime;
+		$actionable_proof = $direct_attribution || $pair_runtime;
 		$admin_noise      = $admin_count >= 2 && $common_admin_count >= max( 2, $admin_count - 1 );
 
 		return array(
 			'has_supporting'          => $has_supporting,
 			'has_generic_runtime'     => $has_generic_runtime,
 			'pair_specific_runtime'   => $pair_runtime,
-			'exact_resource_proof'    => $exact_resource_proof,
 			'direct_attribution'      => $direct_attribution,
 			'partial_attribution'     => $partial_attribution,
 			'unattributed_mutation'   => $unattributed_mutation,

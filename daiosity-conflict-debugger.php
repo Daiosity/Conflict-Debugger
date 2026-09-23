@@ -3,7 +3,7 @@
  * Plugin Name: Daiosity Conflict Debugger
  * Plugin URI: https://github.com/Daiosity/Conflict-Debugger
  * Description: Find likely plugin conflicts before you waste hours disabling plugins manually.
- * Version: 1.2.1
+ * Version: 1.3.0
  * Requires at least: 6.2
  * Requires PHP: 8.1
  * Author: Christo Theron
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'PCD_VERSION', '1.2.1' );
+define( 'PCD_VERSION', '1.3.0' );
 define( 'PCD_FILE', __FILE__ );
 define( 'PCD_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PCD_URL', plugin_dir_url( __FILE__ ) );

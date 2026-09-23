@@ -4,6 +4,12 @@ This task list keeps the next diagnostics milestones concrete and visible.
 
 ## Current Focus
 
+- [x] Validate evidence claims before scoring and keep displayed proof counts consistent
+- [x] Scope findings to a concrete resource and individual request trace
+- [x] Normalize REST method overlaps and WordPress HEAD fallback
+- [x] Prevent mutation attribution from spreading to incidental trace owners
+- [x] Treat asset priority-boundary snapshots as partial attribution
+
 - [x] WordPress 7.1.2 bootstrap, scan and Plugin Check 2.1.0 validation
 - [x] Administrator-only browser telemetry and bounded diagnostic redaction
 - [x] Protected diagnostic deletion and queued-job lifecycle cleanup

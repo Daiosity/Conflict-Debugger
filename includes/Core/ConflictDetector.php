@@ -149,6 +149,15 @@ final class ConflictDetector {
 							'same_trace'        => ! empty( $observed_entry['same_trace'] ),
 							'failure_mode'      => sanitize_key( (string) ( $observed_entry['failure_mode'] ?? '' ) ),
 							'contaminated'      => ! empty( $observed_entry['contaminated'] ),
+							'request_id'        => (string) ( $observed_entry['request_id'] ?? '' ),
+							'evidence_source'   => (string) ( $observed_entry['evidence_source'] ?? '' ),
+							'actor_slug'        => (string) ( $observed_entry['actor_slug'] ?? '' ),
+							'target_owner_slug' => (string) ( $observed_entry['target_owner_slug'] ?? '' ),
+							'actor_callback'    => (string) ( $observed_entry['actor_callback'] ?? '' ),
+							'attribution_status' => (string) ( $observed_entry['attribution_status'] ?? '' ),
+							'mutation_status'   => (string) ( $observed_entry['mutation_status'] ?? '' ),
+							'mutation_kind'     => (string) ( $observed_entry['mutation_kind'] ?? '' ),
+							'resource_type'     => (string) ( $observed_entry['resource_type'] ?? '' ),
 						)
 					);
 
@@ -199,11 +208,23 @@ final class ConflictDetector {
 				}
 
 				$best_surface_key  = '';
+				// Runtime observations belong to their own surface, not every surface in a pair.
+				foreach ( $global_evidence as $index => $item ) {
+					if ( ! in_array( (string) $item['signal_key'], array( 'pair_specific_runtime_breakage', 'generic_runtime_noise', 'third_party_contamination' ), true ) ) {
+						continue;
+					}
+					$runtime_surface = in_array( (string) ( $item['resource_type'] ?? '' ), array( 'script_handle', 'style_handle' ), true )
+						? 'asset_loading' : $this->surface_for_context( (string) $item['request_context'] );
+					$item['surface'] = $runtime_surface;
+					$this->add_surface_evidence( $surface_map, $runtime_surface, (string) $item['signal_key'], (string) $item['message'], (string) $item['strength'], $item );
+					unset( $global_evidence[ $index ] );
+				}
 				$best_surface_data = array();
 				$best_score        = 0;
 				$best_severity     = 'info';
 				$best_category     = 'overlap';
 				$best_evidence     = array();
+				$best_proof_rank   = -1;
 
 				foreach ( $surface_map as $surface_key => $surface_data ) {
 					if ( empty( $surface_data['evidence_items'] ) ) {
@@ -229,6 +250,7 @@ final class ConflictDetector {
 					}
 
 					$evidence_items = $this->enrich_evidence_items( $evidence_items, (string) $surface_key );
+					$evidence_items = array_map( array( EvidenceAssessment::class, 'normalize' ), $evidence_items );
 					$evidence_items = $this->deduplicate_evidence_items( $evidence_items );
 					$evidence_items = $this->select_primary_context_evidence( $evidence_items );
 					$score          = $this->heuristics->score_evidence_items( $evidence_items );
@@ -238,14 +260,17 @@ final class ConflictDetector {
 
 					$severity = $this->heuristics->severity_for( $evidence_items, $score );
 					$category = $this->heuristics->finding_type_for( $evidence_items );
+					$breakdown = $this->heuristics->evidence_breakdown( $evidence_items );
+					$proof_rank = ! empty( $breakdown['runtime_breakage'] ) ? 2 : ( ! empty( $breakdown['strong_proof'] ) ? 1 : 0 );
 
 					if (
-						$score > $best_score ||
+						$proof_rank > $best_proof_rank ||
 						(
-							$score === $best_score &&
-							$this->heuristics->severity_rank( $severity ) > $this->heuristics->severity_rank( $best_severity )
+							$proof_rank === $best_proof_rank && ( $score > $best_score ||
+								( $score === $best_score && $this->heuristics->severity_rank( $severity ) > $this->heuristics->severity_rank( $best_severity ) ) )
 						)
 					) {
+						$best_proof_rank   = $proof_rank;
 						$best_score        = $score;
 						$best_surface_key  = (string) $surface_key;
 						$best_surface_data = $surface_data;
@@ -736,41 +761,41 @@ final class ConflictDetector {
 		$routes  = method_exists( $server, 'get_routes' ) ? $server->get_routes() : array();
 
 		foreach ( $routes as $route => $handlers ) {
-			$plugin_slugs = array();
+			$owned_handlers = array();
 
 			foreach ( (array) $handlers as $handler ) {
+				if ( ! is_array( $handler ) ) {
+					continue;
+				}
 				$slug = $this->resolve_plugin_slug_from_callback( $handler['callback'] ?? null );
 				if ( $slug ) {
-					$plugin_slugs[ $slug ] = true;
+					$owned_handlers[] = array( 'owner_slug' => $slug, 'methods' => $handler['methods'] ?? array() );
 				}
 			}
 
-			$slugs = array_keys( $plugin_slugs );
-			if ( count( $slugs ) < 2 ) {
-				continue;
-			}
-
-			for ( $i = 0, $count = count( $slugs ); $i < $count; $i++ ) {
-				for ( $j = $i + 1; $j < $count; $j++ ) {
-					$pair_key = $this->build_pair_key( $slugs[ $i ], $slugs[ $j ] );
-					$this->add_analysis_item(
-						$results,
-						$pair_key,
-						'rest_api_ajax',
-						'rest_route_overlap',
-						sprintf(
-							/* translators: %s REST route. */
-							__( 'Both plugins register callbacks against the same REST route family: %s.', 'daiosity-conflict-debugger' ),
-							$route
-						),
-						'concrete',
-						array(
-							'tier'            => 'concrete',
-							'request_context' => $this->request_context_for_surface( 'rest_api_ajax' ),
-							'shared_resource' => (string) $route,
-						)
-					);
-				}
+			foreach ( ( new RestRouteInspector() )->overlaps( $owned_handlers ) as $overlap ) {
+				$this->add_analysis_item(
+					$results,
+					$this->build_pair_key( $overlap['first_owner'], $overlap['next_owner'] ),
+					'rest_api_ajax',
+					'rest_route_overlap',
+					sprintf(
+						/* translators: 1: REST route, 2: HTTP methods, 3: first plugin, 4: later plugin. */
+						__( 'REST route %1$s has overlapping handlers for %2$s: %3$s is registered before %4$s. Dispatch order may matter; incompatible behavior and failed responses have not been established.', 'daiosity-conflict-debugger' ),
+						$route,
+						implode( ', ', $overlap['methods'] ),
+						$overlap['first_owner'],
+						$overlap['next_owner']
+					),
+					'context',
+					array(
+						'tier'              => 'supporting',
+						'request_context'   => 'rest',
+						'execution_surface' => 'rest_api_init',
+						'shared_resource'   => (string) $route,
+						'http_methods'      => $overlap['methods'],
+					)
+				);
 			}
 		}
 
@@ -1003,6 +1028,9 @@ final class ConflictDetector {
 
 		foreach ( $entries as $entry ) {
 			$type         = sanitize_key( (string) ( $entry['type'] ?? '' ) );
+			if ( ! in_array( $type, array( 'callback_mutation', 'asset_queue_mutation', 'asset_registry_mutation', 'asset_lifecycle' ), true ) ) {
+				continue;
+			}
 			$mutation_kind = sanitize_key( (string) ( $entry['mutation_kind'] ?? '' ) );
 			$actor_slug   = sanitize_key( (string) ( $entry['actor_slug'] ?? '' ) );
 			$target_owner = sanitize_key( (string) ( $entry['target_owner_slug'] ?? '' ) );
@@ -1052,6 +1080,10 @@ final class ConflictDetector {
 				$strength = 'context';
 			}
 
+			// Incidental owners in a trace are not additional mutator/victim pairs.
+			if ( '' !== $actor_slug && '' !== $target_owner ) {
+				$owner_slugs = array_values( array_unique( array( $actor_slug, $target_owner ) ) );
+			}
 			for ( $i = 0, $count = count( $owner_slugs ); $i < $count; $i++ ) {
 				for ( $j = $i + 1; $j < $count; $j++ ) {
 					$this->add_analysis_item(
@@ -1069,6 +1101,15 @@ final class ConflictDetector {
 							'pair_specific'   => '' !== $actor_slug && '' !== $target_owner,
 							'attribution_status' => $attribution_status,
 							'mutation_status' => $mutation_status,
+							'actor_slug' => $actor_slug,
+							'target_owner_slug' => $target_owner,
+							'actor_callback' => (string) ( $entry['actor_callback'] ?? '' ),
+							'request_id' => (string) ( $entry['request_id'] ?? '' ),
+							'event_id' => (string) ( $entry['event_id'] ?? '' ),
+							'sequence' => (int) ( $entry['sequence'] ?? 0 ),
+							'evidence_source' => (string) ( $entry['evidence_source'] ?? '' ),
+							'contamination_status' => (string) ( $entry['contamination_status'] ?? '' ),
+							'mutation_kind' => $mutation_kind,
 						)
 					);
 				}
@@ -1081,9 +1122,8 @@ final class ConflictDetector {
 	/**
 	 * Adds pair findings from exact registry entries with distinct owners.
 	 *
-	 * Exact registry collisions should score as strong evidence because the
-	 * plugins are competing for the same key or route, not merely sharing a
-	 * general category.
+	 * Shared keys identify a validation target, not incompatible behavior.
+	 * EvidenceAssessment requires a captured mutation before accepting proof.
 	 *
 	 * @param array<string, array<string, array<string, mixed>>> $results Analysis results.
 	 * @param array<int, array<string, mixed>>                   $registrations Registry entries.
@@ -1345,7 +1385,22 @@ final class ConflictDetector {
 				}
 			}
 
-			$is_pair_specific_runtime = TraceEvent::SOURCE_CLIENT !== (string) ( $entry['evidence_source'] ?? '' ) && ! $contaminated && $same_trace && ( $direct_pair_mutation || ( $pair_specific && $resource_match && $owner_match ) );
+			$assessment = EvidenceAssessment::normalize(
+				array_merge(
+					$entry,
+					array(
+						'signal_key' => 'pair_specific_runtime_breakage',
+						'tier' => 'runtime_breakage',
+						'pair_specific' => $direct_pair_mutation,
+						'same_trace' => $same_trace,
+						'failure_mode' => $failure_mode,
+						'contaminated' => $contaminated,
+						'shared_resource' => $this->summarize_observed_resource( $entry ),
+						'execution_surface' => $this->execution_surface_for_entry( $entry ),
+					)
+				)
+			);
+			$is_pair_specific_runtime = ! empty( $assessment['proof_accepted'] );
 
 			if ( ! $is_pair_specific_runtime && $matched < 2 && ! $owner_match && ! $resource_match ) {
 				continue;
@@ -1614,7 +1669,6 @@ final class ConflictDetector {
 	 * @return bool
 	 */
 	private function entry_has_direct_pair_mutation( array $entry, string $slug_a, string $slug_b ): bool {
-		$signal_type    = sanitize_key( (string) ( $entry['type'] ?? '' ) );
 		$mutation_kind  = sanitize_key( (string) ( $entry['mutation_kind'] ?? '' ) );
 		$actor_slug     = sanitize_key( (string) ( $entry['actor_slug'] ?? '' ) );
 		$target_owner   = sanitize_key( (string) ( $entry['target_owner_slug'] ?? '' ) );
@@ -1640,14 +1694,14 @@ final class ConflictDetector {
 			&& in_array( $actor_slug, array( $slug_a, $slug_b ), true )
 			&& in_array( $target_owner, array( $slug_a, $slug_b ), true )
 			&& $actor_slug !== $target_owner
-			&& in_array( $attribution, array( 'attribution_direct', 'attribution_partial' ), true );
+			&& TraceEvent::ATTRIBUTION_DIRECT === $attribution
+			&& '' !== (string) ( $entry['actor_callback'] ?? '' );
 
 		if ( $direct_pair_actor && in_array( $mutation_kind, array( 'asset_dequeued', 'asset_deregistered', 'asset_src_changed', 'asset_dependency_changed', 'asset_version_changed', 'asset_group_changed', 'asset_media_changed', 'callback_removed', 'callback_replaced' ), true ) ) {
 			return true;
 		}
 
-		return in_array( $signal_type, array( 'asset_queue_mutation', 'asset_registry_mutation' ), true )
-			|| 'asset_state_mutation' === $mutation_kind;
+		return false;
 	}
 
 	/**
@@ -2278,6 +2332,16 @@ final class ConflictDetector {
 	 * @return string
 	 */
 	private function build_recommended_next_step( string $surface_key, string $request_context, string $execution_surface, string $shared_resource, array $evidence_items ): string {
+		foreach ( $evidence_items as $item ) {
+			if ( 'rest_route_overlap' === ( $item['signal_key'] ?? '' ) ) {
+				return sprintf(
+					/* translators: 1: REST route, 2: HTTP methods. */
+					__( 'In staging, compare the handler order and permission callbacks for %1$s using %2$s with the same authentication state. Compare response status and body with each plugin enabled separately. Do not replay write requests on production.', 'daiosity-conflict-debugger' ),
+					$shared_resource,
+					implode( ', ', (array) ( $item['http_methods'] ?? array() ) )
+				);
+			}
+		}
 		if ( $this->evidence_has_signal( $evidence_items, array( 'direct_callback_mutation' ) ) ) {
 			return sprintf(
 				/* translators: 1: hook or execution surface, 2: callback label or shared resource, 3: request context. */
@@ -2368,44 +2432,7 @@ final class ConflictDetector {
 	 * @return array<int, array<string, mixed>>
 	 */
 	private function select_primary_context_evidence( array $evidence_items ): array {
-		$generic_contexts = array( '', 'runtime', 'generic site behavior' );
-		$generic_items    = array();
-		$context_groups   = array();
-
-		foreach ( $evidence_items as $evidence_item ) {
-			$request_context = strtolower( trim( (string) ( $evidence_item['request_context'] ?? '' ) ) );
-			if ( in_array( $request_context, $generic_contexts, true ) ) {
-				$generic_items[] = $evidence_item;
-				continue;
-			}
-
-			$context_groups[ $request_context ][] = $evidence_item;
-		}
-
-		if ( empty( $context_groups ) ) {
-			return $evidence_items;
-		}
-
-		$best_context = '';
-		$best_score   = -1;
-		$best_items   = $evidence_items;
-
-		foreach ( $context_groups as $context => $items ) {
-			$candidate_items = array_merge( $items, $generic_items );
-			$candidate_score = $this->heuristics->score_evidence_items( $candidate_items );
-
-			if ( $candidate_score > $best_score ) {
-				$best_score   = $candidate_score;
-				$best_context = (string) $context;
-				$best_items   = $candidate_items;
-			}
-		}
-
-		if ( '' === $best_context ) {
-			return $evidence_items;
-		}
-
-		return $best_items;
+		return ( new EvidenceScope() )->select( $evidence_items, $this->heuristics );
 	}
 
 	/**
@@ -2628,12 +2655,7 @@ final class ConflictDetector {
 					(string) ( $evidence_item['signal_key'] ?? 'surface_context_match' ),
 					(string) ( $evidence_item['message'] ?? '' ),
 					(string) ( $evidence_item['strength'] ?? 'medium' ),
-					array(
-						'tier'            => (string) ( $evidence_item['tier'] ?? '' ),
-						'request_context' => (string) ( $evidence_item['request_context'] ?? '' ),
-						'shared_resource' => (string) ( $evidence_item['shared_resource'] ?? '' ),
-						'execution_surface' => (string) ( $evidence_item['execution_surface'] ?? '' ),
-					)
+					$evidence_item
 				);
 			}
 		}
@@ -2705,7 +2727,7 @@ final class ConflictDetector {
 		$seen   = array();
 
 		foreach ( $evidence_items as $evidence_item ) {
-			$key = (string) ( $evidence_item['surface'] ?? '' ) . '|' . (string) ( $evidence_item['signal_key'] ?? '' ) . '|' . (string) ( $evidence_item['message'] ?? '' );
+			$key = wp_json_encode( array_intersect_key( $evidence_item, array_flip( array( 'surface', 'signal_key', 'message', 'shared_resource', 'request_context', 'request_id', 'event_id', 'tier', 'actor_slug', 'target_owner_slug' ) ) ) );
 			if ( isset( $seen[ $key ] ) || '' === (string) ( $evidence_item['message'] ?? '' ) ) {
 				continue;
 			}

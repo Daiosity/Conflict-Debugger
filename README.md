@@ -54,6 +54,9 @@ That means the detector does **not** treat common WordPress behavior as proof of
 - runtime mutation tracking for callback churn and asset dequeue or deregister behavior
 - observer-artifact and global-anomaly classification to reduce false positives from tools like Query Monitor
 - centralized trust policy with hard gates for actor attribution, contamination, observer behavior, and common admin overlap
+- evidence validation before scoring, with explanations for rejected proof claims
+- REST method-aware checks that distinguish GET/POST coexistence from overlapping dispatch handlers
+- resource- and request-scoped cases instead of accumulated clues from unrelated execution paths
 
 ### Runtime evidence
 
@@ -81,6 +84,12 @@ The detector reasons through this model:
 
 `request -> hook -> callback -> resource -> mutation -> breakage`
 
+A shared key is a validation target, not proof of incompatibility. Asset and callback
+snapshots show what changed between observation points; they do not identify the
+exact mutating callback. These remain supporting evidence unless a captured
+actor/resource mutation path is available. Repeated observations within a request
+do not count as independent confirmations.
+
 It classifies evidence into four tiers:
 
 1. **Weak overlap**
@@ -93,10 +102,9 @@ It classifies evidence into four tiers:
    - same sensitive workflow area
    - same hook family in a risky flow
 3. **Concrete interference**
-   - same exact resource
-   - callback removal or replacement
-   - asset deregister or dequeue conflicts
-   - same AJAX action, REST route, shortcode, block, slug, or handle
+   - a captured mutating callback and distinct resource owner
+   - callback removal or replacement on the identified request
+   - asset deregister or dequeue mutations with direct attribution
 4. **Observed breakage**
    - PHP runtime errors
    - JS failures

@@ -4,7 +4,7 @@ Tags: diagnostics, debugging, plugins, conflicts, health
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.2.1
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,13 @@ Use Delete stored diagnostics on the plugin dashboard to clear saved reports and
 No. This version uses local PHP rules and runtime evidence. No API key, external AI service or paid account is required.
 
 == Changelog ==
+
+= 1.3.0 =
+- Validate proof claims before scoring and display; snapshot timing is not direct actor attribution.
+- Keep findings focused on one resource and request, without accumulating repeated observations as independent proof.
+- Compare REST HTTP methods, including HEAD fallback, instead of flagging legitimate GET/POST coexistence.
+- Limit attributed mutations to the actor and resource owner, not incidental plugins in the trace.
+- Explain evidence limitations and provide route-specific validation steps.
 
 = 1.2.1 =
 - Restricted browser telemetry to administrators, bounded input, and removed client-supplied causality claims.

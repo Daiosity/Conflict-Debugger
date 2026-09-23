@@ -161,6 +161,7 @@ final class RuntimeTelemetryRepository {
 			'attribution_status'   => sanitize_key( (string) ( $event['attribution_status'] ?? TraceEvent::ATTRIBUTION_UNKNOWN ) ),
 			'contamination_status' => sanitize_key( (string) ( $event['contamination_status'] ?? TraceEvent::CONTAMINATION_NONE ) ),
 			'actor_slug'           => sanitize_key( (string) ( $event['actor_slug'] ?? '' ) ),
+			'actor_callback'       => sanitize_text_field( (string) ( $event['actor_callback'] ?? '' ) ),
 			'target_owner_slug'    => sanitize_key( (string) ( $event['target_owner_slug'] ?? '' ) ),
 			'status_code'          => (int) ( $event['status_code'] ?? 0 ),
 			'session_id'           => sanitize_text_field( (string) ( $event['session_id'] ?? '' ) ),
