@@ -2,9 +2,9 @@
 Contributors: christotheron
 Tags: diagnostics, debugging, plugins, conflicts, health
 Requires at least: 6.2
-Tested up to: 6.9
+Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.1.4
+Stable tag: 1.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -14,18 +14,20 @@ Find likely plugin conflicts before you waste hours disabling plugins manually.
 
 Daiosity Conflict Debugger is a focused diagnostics plugin for site owners, developers, and agencies who need a faster way to investigate likely plugin conflicts.
 
-The free/core foundation includes:
+Features include:
 
 * A clean WordPress-native dashboard under Tools
 * Manual scans of active plugins, environment context, and available error signals
 * Diagnostic session trace comparison for reproduced issue paths
 * Focused validation mode for one plugin pair, hook, asset handle, REST route, or AJAX action
+* Centralized trust policy with hard severity and confidence ceilings
+* Stable scan comparison for new, resolved, and materially changed findings
 * Confidence-based conflict findings instead of fake certainty
 * Finding detail views with evidence strength, runtime links, and scoring rationale
 * Summary cards for active plugins, error signals, likely conflicts, and recent plugin changes
 * Practical next-step recommendations for staging-first troubleshooting
 
-This plugin does not guarantee an exact root cause. It surfaces likely conflict patterns based on overlapping functionality, hook congestion, duplicate assets, recent changes, and accessible runtime signals.
+This plugin does not guarantee an exact root cause. It prioritizes exact resources, attributed mutations, same-request evidence, and observed failures while treating common hook overlap as low-value context.
 
 == Installation ==
 
@@ -44,11 +46,37 @@ No. The free/core version only analyzes signals and presents likely conflict fin
 
 No. If `debug.log` is unavailable, the plugin degrades gracefully and explains that the analysis is based on runtime and interaction signals.
 
-= What premium-ready features are planned? =
+= What diagnostic data is stored? =
 
-The current architecture is prepared for safe test mode, binary-search auto-isolation, scheduled scans, alerts, and staging-only advanced diagnostics.
+Diagnostics are processed locally. The plugin does not send diagnostic records to Daiosity or an external service. It uses a same-site loopback request to run background scans.
+
+The database retains up to 50 runtime events, 40 request contexts, 12 scan summaries, the latest scan, resource snapshots and diagnostic session settings. Records can include plugin names, file paths, callback names and error messages. Request URL query strings and fragments are removed; credential assignments and email addresses in diagnostic messages are redacted. This is best-effort redaction; review diagnostic text before sharing it.
+
+Browser error capture runs only for logged-in administrators with manage_options permission. Server request diagnostics can cover public requests, but do not intentionally collect cookies, request bodies or IP addresses. Server logs are read locally when accessible and are never modified by this plugin.
+
+Use Delete stored diagnostics on the plugin dashboard to clear saved reports and traces. New site activity may produce new records. Uninstall removes plugin options and queued scan jobs. Deactivation cancels queued scans and active diagnostic sessions.
+
+= Does it use AI or send data to a model? =
+
+No. This version uses local PHP rules and runtime evidence. No API key, external AI service or paid account is required.
 
 == Changelog ==
+
+= 1.2.1 =
+- Restricted browser telemetry to administrators, bounded input, and removed client-supplied causality claims.
+- Added shared diagnostic redaction, bounded storage payloads, and an administrator-only delete-data action.
+- Required an actual request ID for runtime correlation and prevented browser reports from confirming server mutations.
+- Removed unfinished Pro preview features and added scheduled-job cleanup on deactivation and multisite uninstall.
+- Standardized both installer filenames to a single plugin root with reproducible ZIP timestamps.
+- Added security/privacy regression tests and WordPress inspection automation.
+
+= 1.2.0 =
+- Centralized pairwise classification in a dedicated trust policy so severity, confidence ceilings, actor attribution, contamination, observer behavior, and admin-overlap hard gates are applied consistently.
+- Prevented common hook coexistence and partially attributed asset or callback mutations from being promoted as direct proof.
+- Added stable finding identities and scan comparisons for new, resolved, and materially changed findings without treating category changes as unrelated findings.
+- Expanded log discovery to report usable `WP_DEBUG_LOG`, PHP error log, and filtered custom log candidates with clear source diagnostics.
+- Added a standalone policy regression suite covering common admin overlap, direct and partial mutation attribution, same-trace breakage, and scan comparison behavior.
+- Added automated PHP 8.1-8.3 linting, policy regression, and release-package layout checks for repository changes.
 
 = 1.1.4 =
 - Renamed the public plugin name to `Daiosity Conflict Debugger` and the distributable slug, folder, ZIP outputs, admin page slug, and text domain to `daiosity-conflict-debugger`.

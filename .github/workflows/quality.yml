@@ -1,0 +1,68 @@
+name: Quality Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  php:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - '8.1'
+          - '8.2'
+          - '8.3'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Lint plugin PHP
+        shell: bash
+        run: |
+          find includes -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l daiosity-conflict-debugger.php
+          php -l uninstall.php
+          php -l tests/policy-regression.php
+
+      - name: Run trust-policy regression suite
+        run: php tests/policy-regression.php
+
+      - name: Run privacy and authorization regressions
+        run: php tests/privacy-regression.php
+
+  package:
+    name: Validate release packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build and validate ZIP layouts
+        shell: pwsh
+        run: ./tools/build-standard-zip.ps1
+
+      - name: Extract the exact submission artifact
+        run: unzip build/daiosity-conflict-debugger.zip -d build/inspection
+
+      - name: WordPress Plugin Check
+        uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: build/inspection/daiosity-conflict-debugger
+          include-experimental: false
+          strict: true

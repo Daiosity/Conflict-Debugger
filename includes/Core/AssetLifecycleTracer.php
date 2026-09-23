@@ -781,7 +781,7 @@ final class AssetLifecycleTracer {
 			return '/';
 		}
 
-		return sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) );
+		return DiagnosticPrivacy::path( sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) ) );
 	}
 
 	/**

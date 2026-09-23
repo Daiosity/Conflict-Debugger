@@ -65,7 +65,6 @@ final class RuntimeTelemetry {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_script' ) );
 		add_action( 'login_enqueue_scripts', array( $this, 'enqueue_login_script' ) );
 		add_action( 'wp_ajax_pcd_report_runtime_event', array( $this, 'handle_runtime_event' ) );
-		add_action( 'wp_ajax_nopriv_pcd_report_runtime_event', array( $this, 'handle_runtime_event' ) );
 		add_action( 'shutdown', array( $this, 'capture_request_state' ), 999 );
 	}
 
@@ -110,9 +109,23 @@ final class RuntimeTelemetry {
 	 * @return void
 	 */
 	public function handle_runtime_event(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'Administrator access is required for browser diagnostics.', 'daiosity-conflict-debugger' ) ), 403 );
+		}
 		check_ajax_referer( 'pcd_runtime_event', 'nonce' );
 
 		$posted_data    = wp_unslash( $_POST );
+		foreach ( $posted_data as $value ) {
+			if ( ! is_string( $value ) || strlen( $value ) > 4096 ) {
+				wp_send_json_error( array( 'message' => __( 'Invalid diagnostic payload.', 'daiosity-conflict-debugger' ) ), 400 );
+			}
+		}
+		if ( count( $posted_data ) > 30 ) {
+			wp_send_json_error( array( 'message' => __( 'Diagnostic payload is too large.', 'daiosity-conflict-debugger' ) ), 400 );
+		}
+		if ( ! in_array( $posted_data['type'] ?? '', array( 'js_error', 'js_promise', 'resource_error', 'network_failure' ), true ) ) {
+			wp_send_json_error( array( 'message' => __( 'Unsupported browser diagnostic type.', 'daiosity-conflict-debugger' ) ), 400 );
+		}
 		$posted_context = sanitize_text_field( (string) ( $posted_data['request_context'] ?? '' ) );
 		$server_context = $this->build_request_context();
 		$request_scope  = sanitize_text_field( (string) ( $posted_data['request_scope'] ?? $server_context['request_scope'] ?? '' ) );
@@ -146,9 +159,9 @@ final class RuntimeTelemetry {
 			'status_code'          => absint( $posted_data['status_code'] ?? 0 ),
 			'session_id'           => sanitize_text_field( (string) ( $posted_data['session_id'] ?? '' ) ),
 			'resource_hints'       => $this->normalize_resource_hints( $posted_data['resource_hints'] ?? '' ),
-			'attribution_status'   => sanitize_key( (string) ( $posted_data['attribution_status'] ?? TraceEvent::ATTRIBUTION_UNKNOWN ) ),
-			'contamination_status' => sanitize_key( (string) ( $posted_data['contamination_status'] ?? TraceEvent::CONTAMINATION_NONE ) ),
-			'mutation_status'      => sanitize_key( (string) ( $posted_data['mutation_status'] ?? TraceEvent::MUTATION_NONE ) ),
+			'attribution_status'   => TraceEvent::ATTRIBUTION_UNKNOWN,
+			'contamination_status' => TraceEvent::CONTAMINATION_POSSIBLE,
+			'mutation_status'      => TraceEvent::MUTATION_NONE,
 		);
 
 		$active_session = $this->resolve_active_session_for_context( (string) $event['request_context'] );
@@ -254,6 +267,9 @@ final class RuntimeTelemetry {
 	 * @return void
 	 */
 	private function enqueue_runtime_script( string $default_context ): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
 		$request_scope = $this->current_request_scope();
 
 		wp_enqueue_script(
@@ -441,7 +457,7 @@ final class RuntimeTelemetry {
 			return '/';
 		}
 
-		return sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) );
+		return DiagnosticPrivacy::path( sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) ) );
 	}
 
 	/**

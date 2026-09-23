@@ -10,7 +10,10 @@ declare(strict_types=1);
 namespace PluginConflictDebugger\Admin;
 
 use PluginConflictDebugger\Core\DiagnosticSessionRepository;
+use PluginConflictDebugger\Core\DiagnosticData;
+use PluginConflictDebugger\Core\FindingSignature;
 use PluginConflictDebugger\Core\ResultsRepository;
+use PluginConflictDebugger\Core\ScanComparator;
 use PluginConflictDebugger\Core\ScanStateRepository;
 use PluginConflictDebugger\Core\Scanner;
 use PluginConflictDebugger\Core\TraceAnalyzer;
@@ -89,22 +92,33 @@ final class DashboardPage {
 	private Capabilities $capabilities;
 
 	/**
+	 * Scan comparison service.
+	 *
+	 * @var ScanComparator
+	 */
+	private ScanComparator $scan_comparator;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param Scanner             $scanner Scanner service.
-	 * @param ResultsRepository   $repository Results repository.
-	 * @param ScanStateRepository $scan_state Scan state repository.
+	 * @param Scanner                     $scanner Scanner service.
+	 * @param ResultsRepository           $repository Results repository.
+	 * @param ScanStateRepository         $scan_state Scan state repository.
 	 * @param DiagnosticSessionRepository $sessions Diagnostic session repository.
-	 * @param Capabilities        $capabilities Capability service.
+	 * @param ValidationModeRepository    $validation Validation mode repository.
+	 * @param Capabilities                $capabilities Capability service.
+	 * @param TraceAnalyzer               $trace_analyzer Trace analysis service.
+	 * @param ScanComparator              $scan_comparator Scan comparison service.
 	 */
-	public function __construct( Scanner $scanner, ResultsRepository $repository, ScanStateRepository $scan_state, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation, Capabilities $capabilities, TraceAnalyzer $trace_analyzer ) {
-		$this->scanner      = $scanner;
-		$this->repository   = $repository;
-		$this->scan_state   = $scan_state;
-		$this->sessions     = $sessions;
-		$this->validation   = $validation;
-		$this->capabilities = $capabilities;
-		$this->trace_analyzer = $trace_analyzer;
+	public function __construct( Scanner $scanner, ResultsRepository $repository, ScanStateRepository $scan_state, DiagnosticSessionRepository $sessions, ValidationModeRepository $validation, Capabilities $capabilities, TraceAnalyzer $trace_analyzer, ScanComparator $scan_comparator ) {
+		$this->scanner         = $scanner;
+		$this->repository      = $repository;
+		$this->scan_state      = $scan_state;
+		$this->sessions        = $sessions;
+		$this->validation      = $validation;
+		$this->capabilities    = $capabilities;
+		$this->trace_analyzer  = $trace_analyzer;
+		$this->scan_comparator = $scan_comparator;
 	}
 
 	/**
@@ -113,6 +127,7 @@ final class DashboardPage {
 	 * @return void
 	 */
 	public function register(): void {
+		add_action( 'admin_post_pcd_clear_diagnostics', array( $this, 'clear_diagnostics' ) );
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_post_pcd_run_scan', array( $this, 'handle_scan' ) );
 		add_action( 'wp_ajax_pcd_start_scan', array( $this, 'ajax_start_scan' ) );
@@ -223,12 +238,12 @@ final class DashboardPage {
 			wp_send_json_error( array( 'message' => __( 'Missing worker credentials.', 'daiosity-conflict-debugger' ) ), 400 );
 		}
 
-		if ( $token !== (string) ( $state['token'] ?? '' ) || $worker_key !== (string) ( $state['worker_key'] ?? '' ) ) {
+		if ( ! hash_equals( (string) ( $state['token'] ?? '' ), $token ) || ! hash_equals( (string) ( $state['worker_key'] ?? '' ), $worker_key ) ) {
 			wp_send_json_error( array( 'message' => __( 'Worker credentials did not match the queued scan.', 'daiosity-conflict-debugger' ) ), 403 );
 		}
 
 		$this->run_background_scan( $token );
-		wp_send_json_success( $this->scan_state->get() );
+		wp_send_json_success( array( 'completed' => true ) );
 	}
 
 	/**
@@ -489,7 +504,7 @@ final class DashboardPage {
 		$validation_targets = $this->validation->get_supported_targets();
 		$validation_plugins = $this->build_validation_plugin_options( $results );
 		$plugin_drilldown  = $has_results ? $this->build_plugin_drilldown( $results ) : array();
-		$scan_comparison   = $has_results ? $this->build_scan_comparison( $results, $history ) : array();
+		$scan_comparison   = $has_results ? $this->scan_comparator->compare( $results, $history ) : array();
 		$runtime_event_view = $has_results ? $this->build_runtime_event_view( $results, $findings, $active_session, $last_session, $active_validation, $last_validation ) : array(
 			'summary'         => array(),
 			'events'          => array(),
@@ -581,7 +596,6 @@ final class DashboardPage {
 				<button type="button" class="nav-tab nav-tab-active" data-pcd-tab-trigger="findings" aria-selected="true"><?php esc_html_e( 'Findings', 'daiosity-conflict-debugger' ); ?></button>
 				<button type="button" class="nav-tab" data-pcd-tab-trigger="plugins" aria-selected="false"><?php esc_html_e( 'Plugins', 'daiosity-conflict-debugger' ); ?></button>
 				<button type="button" class="nav-tab" data-pcd-tab-trigger="diagnostics" aria-selected="false"><?php esc_html_e( 'Diagnostics', 'daiosity-conflict-debugger' ); ?></button>
-				<button type="button" class="nav-tab" data-pcd-tab-trigger="pro" aria-selected="false"><?php esc_html_e( 'Pro Preview', 'daiosity-conflict-debugger' ); ?></button>
 			</nav>
 
 			<div class="pcd-tab-panels">
@@ -622,6 +636,7 @@ final class DashboardPage {
 										<?php $linked_runtime_events = is_array( $finding_event_map[ $finding_signature ] ?? null ) ? $finding_event_map[ $finding_signature ] : array(); ?>
 										<?php $evidence_items = is_array( $finding['evidence_items'] ?? null ) ? $finding['evidence_items'] : array(); ?>
 										<?php $evidence_breakdown = is_array( $finding['evidence_strength_breakdown'] ?? null ) ? (array) $finding['evidence_strength_breakdown'] : array(); ?>
+										<?php $trust_factors = is_array( $finding['trust_factors'] ?? null ) ? (array) $finding['trust_factors'] : array(); ?>
 										<tr>
 											<td>
 												<span class="pcd-status-badge pcd-status-<?php echo esc_attr( $finding['severity'] ?? 'info' ); ?>">
@@ -759,10 +774,18 @@ final class DashboardPage {
 
 													<div class="pcd-finding-detail-section">
 														<h4><?php esc_html_e( 'Why This Was Scored This Way', 'daiosity-conflict-debugger' ); ?></h4>
-														<p><?php echo esc_html( (string) ( $finding['why_scored_this_way'] ?? '' ) ); ?></p>
-														<?php if ( ! empty( $finding['why_this_is_not_or_is_actionable'] ) ) : ?>
-															<p class="pcd-actionability-note"><?php echo esc_html( (string) $finding['why_this_is_not_or_is_actionable'] ); ?></p>
-														<?php endif; ?>
+													<p><?php echo esc_html( (string) ( $finding['why_scored_this_way'] ?? '' ) ); ?></p>
+													<?php if ( ! empty( $finding['why_this_is_not_or_is_actionable'] ) ) : ?>
+														<p class="pcd-actionability-note"><?php echo esc_html( (string) $finding['why_this_is_not_or_is_actionable'] ); ?></p>
+													<?php endif; ?>
+													<?php if ( ! empty( $trust_factors ) ) : ?>
+														<ul class="pcd-meta-list">
+															<li><?php echo esc_html( $this->format_labeled_value( __( 'Actor attribution', 'daiosity-conflict-debugger' ), $this->humanize_status_token( (string) ( $trust_factors['attribution_status'] ?? 'attribution_unknown' ) ) ) ); ?></li>
+															<li><?php echo esc_html( $this->format_labeled_value( __( 'Pair-specific runtime proof', 'daiosity-conflict-debugger' ), ! empty( $trust_factors['pair_specific_runtime'] ) ? __( 'Observed', 'daiosity-conflict-debugger' ) : __( 'Not established', 'daiosity-conflict-debugger' ) ) ); ?></li>
+															<li><?php echo esc_html( $this->format_labeled_value( __( 'Third-party contamination', 'daiosity-conflict-debugger' ), ! empty( $trust_factors['third_party_contamination'] ) ? __( 'Present', 'daiosity-conflict-debugger' ) : __( 'None detected', 'daiosity-conflict-debugger' ) ) ); ?></li>
+															<li><?php echo esc_html( $this->format_labeled_value( __( 'Confidence ceiling', 'daiosity-conflict-debugger' ), (string) ( (int) ( $finding['confidence_ceiling'] ?? 100 ) ) . '%' ) ); ?></li>
+														</ul>
+													<?php endif; ?>
 													</div>
 
 													<div class="pcd-finding-detail-section">
@@ -1097,12 +1120,39 @@ final class DashboardPage {
 								<ul class="pcd-meta-list">
 									<li><?php echo esc_html( $this->format_labeled_value( __( 'WP_DEBUG', 'daiosity-conflict-debugger' ), ! empty( $log_access['wp_debug'] ) ? __( 'Enabled', 'daiosity-conflict-debugger' ) : __( 'Disabled', 'daiosity-conflict-debugger' ) ) ); ?></li>
 									<li><?php echo esc_html( $this->format_labeled_value( __( 'WP_DEBUG_LOG', 'daiosity-conflict-debugger' ), ! empty( $log_access['wp_debug_log'] ) ? __( 'Enabled', 'daiosity-conflict-debugger' ) : __( 'Disabled', 'daiosity-conflict-debugger' ) ) ); ?></li>
+									<?php if ( ! empty( $log_access['source_label'] ) ) : ?>
+										<li><?php echo esc_html( $this->format_labeled_value( __( 'Selected source', 'daiosity-conflict-debugger' ), (string) $log_access['source_label'] ) ); ?></li>
+									<?php endif; ?>
 									<li><?php echo esc_html( $this->format_labeled_value( __( 'File exists', 'daiosity-conflict-debugger' ), ! empty( $log_access['exists'] ) ? __( 'Yes', 'daiosity-conflict-debugger' ) : __( 'No', 'daiosity-conflict-debugger' ) ) ); ?></li>
 									<li><?php echo esc_html( $this->format_labeled_value( __( 'Readable by PHP', 'daiosity-conflict-debugger' ), ! empty( $log_access['readable'] ) ? __( 'Yes', 'daiosity-conflict-debugger' ) : __( 'No', 'daiosity-conflict-debugger' ) ) ); ?></li>
 									<li><?php echo esc_html( $this->format_labeled_value( __( 'Writable by server', 'daiosity-conflict-debugger' ), ! empty( $log_access['writable'] ) ? __( 'Yes', 'daiosity-conflict-debugger' ) : __( 'No', 'daiosity-conflict-debugger' ) ) ); ?></li>
 								</ul>
 								<?php if ( ! empty( $log_access['path'] ) ) : ?>
 									<code class="pcd-request-context-uri"><?php echo esc_html( (string) $log_access['path'] ); ?></code>
+								<?php endif; ?>
+								<?php if ( ! empty( $log_access['candidates'] ) && is_array( $log_access['candidates'] ) ) : ?>
+									<details class="pcd-evidence-details">
+										<summary>
+											<?php
+											echo esc_html(
+												sprintf(
+													/* translators: %d detected local log paths. */
+													__( 'Detected log paths (%d)', 'daiosity-conflict-debugger' ),
+													count( $log_access['candidates'] )
+												)
+											);
+											?>
+										</summary>
+										<ul class="pcd-meta-list">
+											<?php foreach ( $log_access['candidates'] as $candidate ) : ?>
+												<li>
+													<strong><?php echo esc_html( (string) ( $candidate['label'] ?? __( 'Diagnostic log', 'daiosity-conflict-debugger' ) ) ); ?>:</strong>
+													<?php echo esc_html( (string) ( $candidate['path'] ?? '' ) ); ?>
+													<?php echo esc_html( ! empty( $candidate['readable'] ) ? __( '(readable)', 'daiosity-conflict-debugger' ) : __( '(not readable)', 'daiosity-conflict-debugger' ) ); ?>
+												</li>
+											<?php endforeach; ?>
+										</ul>
+									</details>
 								<?php endif; ?>
 								<?php if ( ! empty( $log_access['recommendations'] ) && is_array( $log_access['recommendations'] ) ) : ?>
 									<ul class="pcd-meta-list">
@@ -1453,6 +1503,10 @@ final class DashboardPage {
 										<span class="pcd-summary-label"><?php esc_html_e( 'Resolved Findings', 'daiosity-conflict-debugger' ); ?></span>
 										<strong class="pcd-summary-value"><?php echo esc_html( (string) count( (array) ( $scan_comparison['resolved_findings'] ?? array() ) ) ); ?></strong>
 									</div>
+									<div class="pcd-drilldown-stat">
+										<span class="pcd-summary-label"><?php esc_html_e( 'Changed Findings', 'daiosity-conflict-debugger' ); ?></span>
+										<strong class="pcd-summary-value"><?php echo esc_html( (string) count( (array) ( $scan_comparison['changed_findings'] ?? array() ) ) ); ?></strong>
+									</div>
 								</div>
 								<div class="pcd-drilldown-meta">
 									<div>
@@ -1470,7 +1524,7 @@ final class DashboardPage {
 										<?php if ( ! empty( $scan_comparison['new_findings'] ) ) : ?>
 											<ul class="pcd-meta-list">
 												<?php foreach ( (array) $scan_comparison['new_findings'] as $compare_item ) : ?>
-													<li><?php echo esc_html( (string) $compare_item ); ?></li>
+													<li><?php echo esc_html( $this->format_compare_finding( (array) $compare_item ) ); ?></li>
 												<?php endforeach; ?>
 											</ul>
 										<?php else : ?>
@@ -1482,11 +1536,25 @@ final class DashboardPage {
 										<?php if ( ! empty( $scan_comparison['resolved_findings'] ) ) : ?>
 											<ul class="pcd-meta-list">
 												<?php foreach ( (array) $scan_comparison['resolved_findings'] as $compare_item ) : ?>
-													<li><?php echo esc_html( (string) $compare_item ); ?></li>
+													<li><?php echo esc_html( $this->format_compare_finding( (array) $compare_item ) ); ?></li>
 												<?php endforeach; ?>
 											</ul>
 										<?php else : ?>
 											<p><?php esc_html_e( 'No findings appear to have resolved since the previous scan.', 'daiosity-conflict-debugger' ); ?></p>
+										<?php endif; ?>
+									</div>
+								</div>
+								<div class="pcd-compare-lists">
+									<div>
+										<h4><?php esc_html_e( 'Changed Since Previous Scan', 'daiosity-conflict-debugger' ); ?></h4>
+										<?php if ( ! empty( $scan_comparison['changed_findings'] ) ) : ?>
+											<ul class="pcd-meta-list">
+												<?php foreach ( (array) $scan_comparison['changed_findings'] as $compare_item ) : ?>
+													<li><?php echo esc_html( $this->format_changed_finding( (array) $compare_item ) ); ?></li>
+												<?php endforeach; ?>
+											</ul>
+										<?php else : ?>
+											<p><?php esc_html_e( 'No existing findings changed severity, category, or confidence materially.', 'daiosity-conflict-debugger' ); ?></p>
 										<?php endif; ?>
 									</div>
 								</div>
@@ -1535,20 +1603,30 @@ final class DashboardPage {
 					</div>
 				</section>
 
-				<section class="pcd-tab-panel" data-pcd-tab-panel="pro" hidden>
-					<section class="pcd-panel">
-						<h2><?php esc_html_e( 'Pro Preview', 'daiosity-conflict-debugger' ); ?></h2>
-						<ul class="pcd-feature-list">
-							<li><?php esc_html_e( 'Safe Test Mode for controlled plugin isolation', 'daiosity-conflict-debugger' ); ?></li>
-							<li><?php esc_html_e( 'Auto-Isolate Conflict using binary search workflows', 'daiosity-conflict-debugger' ); ?></li>
-							<li><?php esc_html_e( 'Scheduled scans and team alerts', 'daiosity-conflict-debugger' ); ?></li>
-						</ul>
-						<p><?php esc_html_e( 'The current free foundation is built so these workflows can be added later without rewriting the scan engine.', 'daiosity-conflict-debugger' ); ?></p>
-					</section>
-				</section>
 			</div>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="pcd_clear_diagnostics">
+				<?php wp_nonce_field( 'pcd_clear_diagnostics' ); ?>
+				<p><?php esc_html_e( 'Delete stored scans, request traces, and diagnostic sessions. Server log files are not changed. New activity may produce new diagnostics.', 'daiosity-conflict-debugger' ); ?></p>
+				<?php submit_button( __( 'Delete stored diagnostics', 'daiosity-conflict-debugger' ), 'secondary', 'submit', false ); ?>
+			</form>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Handles the administrator's explicit diagnostic deletion request.
+	 *
+	 * @return void
+	 */
+	public function clear_diagnostics(): void {
+		if ( ! $this->capabilities->can_manage() ) {
+			wp_die( esc_html__( 'You are not allowed to delete diagnostics.', 'daiosity-conflict-debugger' ), '', array( 'response' => 403 ) );
+		}
+		check_admin_referer( 'pcd_clear_diagnostics' );
+		DiagnosticData::clear();
+		wp_safe_redirect( admin_url( 'tools.php?page=daiosity-conflict-debugger' ) );
+		exit;
 	}
 
 	/**
@@ -1712,55 +1790,6 @@ final class DashboardPage {
 		);
 
 		return $drilldown;
-	}
-
-	/**
-	 * Builds a comparison between the current scan and the previous stored scan.
-	 *
-	 * @param array<string, mixed>              $results Latest results.
-	 * @param array<int, array<string, mixed>> $history Scan history.
-	 * @return array<string, mixed>
-	 */
-	private function build_scan_comparison( array $results, array $history ): array {
-		$current_signatures = $this->findings_snapshot_from_results( $results );
-		$previous_entry     = $history[1] ?? array();
-		$previous_snapshot  = is_array( $previous_entry['findings_snapshot'] ?? null ) ? $previous_entry['findings_snapshot'] : array();
-
-		if ( empty( $previous_entry ) ) {
-			return array(
-				'has_previous' => false,
-			);
-		}
-
-		$current_map  = array();
-		$previous_map = array();
-
-		foreach ( $current_signatures as $item ) {
-			$signature = sanitize_text_field( (string) ( $item['signature'] ?? '' ) );
-			if ( '' !== $signature ) {
-				$current_map[ $signature ] = $item;
-			}
-		}
-
-		foreach ( $previous_snapshot as $item ) {
-			$signature = sanitize_text_field( (string) ( $item['signature'] ?? '' ) );
-			if ( '' !== $signature ) {
-				$previous_map[ $signature ] = $item;
-			}
-		}
-
-		$new_signatures      = array_diff_key( $current_map, $previous_map );
-		$resolved_signatures = array_diff_key( $previous_map, $current_map );
-
-		return array(
-			'has_previous'      => true,
-			'current_timestamp' => sanitize_text_field( (string) ( $results['scan_timestamp'] ?? '' ) ),
-			'previous_timestamp'=> sanitize_text_field( (string) ( $previous_entry['scan_timestamp'] ?? '' ) ),
-			'current_conflicts' => (int) ( $results['summary']['likely_conflicts'] ?? 0 ),
-			'previous_conflicts'=> (int) ( $previous_entry['summary']['likely_conflicts'] ?? 0 ),
-			'new_findings'      => array_values( array_map( array( $this, 'format_compare_finding' ), array_slice( $new_signatures, 0, 6 ) ) ),
-			'resolved_findings' => array_values( array_map( array( $this, 'format_compare_finding' ), array_slice( $resolved_signatures, 0, 6 ) ) ),
-		);
 	}
 
 	/**
@@ -2266,30 +2295,6 @@ final class DashboardPage {
 	}
 
 	/**
-	 * Builds a compact finding snapshot from full latest results.
-	 *
-	 * @param array<string, mixed> $results Latest results.
-	 * @return array<int, array<string, mixed>>
-	 */
-	private function findings_snapshot_from_results( array $results ): array {
-		$findings  = is_array( $results['findings'] ?? null ) ? $results['findings'] : array();
-		$snapshot = array();
-
-		foreach ( array_slice( $findings, 0, 25 ) as $finding ) {
-			$snapshot[] = array(
-				'signature'             => $this->finding_signature( $finding ),
-				'title'                 => sanitize_text_field( (string) ( $finding['title'] ?? '' ) ),
-				'severity'              => sanitize_key( (string) ( $finding['severity'] ?? 'info' ) ),
-				'primary_plugin_name'   => sanitize_text_field( (string) ( $finding['primary_plugin_name'] ?? '' ) ),
-				'secondary_plugin_name' => sanitize_text_field( (string) ( $finding['secondary_plugin_name'] ?? '' ) ),
-				'request_context'       => sanitize_text_field( (string) ( $finding['request_context'] ?? '' ) ),
-			);
-		}
-
-		return $snapshot;
-	}
-
-	/**
 	 * Formats a comparison finding label.
 	 *
 	 * @param array<string, mixed> $finding Finding snapshot.
@@ -2317,6 +2322,36 @@ final class DashboardPage {
 					)
 				)
 			)
+		);
+	}
+
+	/**
+	 * Formats a finding whose category, severity, or confidence changed.
+	 *
+	 * @param array<string, mixed> $change Comparison change record.
+	 * @return string
+	 */
+	private function format_changed_finding( array $change ): string {
+		$current  = is_array( $change['current'] ?? null ) ? $change['current'] : array();
+		$previous = is_array( $change['previous'] ?? null ) ? $change['previous'] : array();
+		$label    = $this->format_compare_finding( $current );
+		$from     = sprintf(
+			'%s, %d%%',
+			ucwords( str_replace( '_', ' ', (string) ( $previous['severity'] ?? 'info' ) ) ),
+			(int) ( $previous['confidence'] ?? 0 )
+		);
+		$to       = sprintf(
+			'%s, %d%%',
+			ucwords( str_replace( '_', ' ', (string) ( $current['severity'] ?? 'info' ) ) ),
+			(int) ( $current['confidence'] ?? 0 )
+		);
+
+		return sprintf(
+			/* translators: 1: finding label, 2: previous severity/confidence, 3: current severity/confidence. */
+			__( '%1$s changed from %2$s to %3$s.', 'daiosity-conflict-debugger' ),
+			$label,
+			$from,
+			$to
 		);
 	}
 
@@ -2399,18 +2434,6 @@ final class DashboardPage {
 	 * @return string
 	 */
 	private function finding_signature( array $finding ): string {
-		return md5(
-			wp_json_encode(
-				array(
-					'primary_plugin'    => sanitize_key( (string) ( $finding['primary_plugin'] ?? '' ) ),
-					'secondary_plugin'  => sanitize_key( (string) ( $finding['secondary_plugin'] ?? '' ) ),
-					'surface_key'       => sanitize_key( (string) ( $finding['surface_key'] ?? $finding['issue_category'] ?? '' ) ),
-					'finding_type'      => sanitize_key( (string) ( $finding['finding_type'] ?? '' ) ),
-					'request_context'   => sanitize_text_field( (string) ( $finding['request_context'] ?? '' ) ),
-					'shared_resource'   => sanitize_text_field( (string) ( $finding['shared_resource'] ?? '' ) ),
-					'execution_surface' => sanitize_text_field( (string) ( $finding['execution_surface'] ?? '' ) ),
-				)
-			)
-		);
+		return FindingSignature::from_finding( $finding );
 	}
 }

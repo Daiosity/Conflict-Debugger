@@ -1,5 +1,7 @@
 # Daiosity Conflict Debugger
 
+[![Quality Checks](https://github.com/Daiosity/Conflict-Debugger/actions/workflows/quality.yml/badge.svg)](https://github.com/Daiosity/Conflict-Debugger/actions/workflows/quality.yml)
+
 ![Daiosity Conflict Debugger icon](./assets/images/daiosity-conflict-debugger-icon.svg)
 
 Daiosity Conflict Debugger is a WordPress diagnostics plugin focused on one job:
@@ -42,6 +44,7 @@ That means the detector does **not** treat common WordPress behavior as proof of
 - environment snapshot capture
 - recent plugin change awareness
 - scan history for comparing results over time
+- stable scan comparison for new, resolved, and materially changed findings
 
 ### Conflict detection
 
@@ -50,6 +53,7 @@ That means the detector does **not** treat common WordPress behavior as proof of
 - exact ownership capture for resources like AJAX actions, REST routes, shortcodes, blocks, and asset handles
 - runtime mutation tracking for callback churn and asset dequeue or deregister behavior
 - observer-artifact and global-anomaly classification to reduce false positives from tools like Query Monitor
+- centralized trust policy with hard gates for actor attribution, contamination, observer behavior, and common admin overlap
 
 ### Runtime evidence
 
@@ -57,7 +61,7 @@ That means the detector does **not** treat common WordPress behavior as proof of
 - lightweight runtime telemetry
 - trace warnings kept separate from actual PHP, log, and request failures in scan summaries
 - JS and failed-request evidence surfaced in diagnostics
-- log access checks with graceful fallback when direct `debug.log` access is unavailable
+- multi-source log access checks for `WP_DEBUG_LOG`, PHP error logs, and filtered custom paths
 - request trace comparison between the most abnormal captured trace and the closest calmer baseline
 
 ### Admin UX
@@ -138,6 +142,24 @@ Release outputs:
 - `daiosity-conflict-debugger-wp-admin.zip`
 - `daiosity-conflict-debugger.zip`
 
+Both filenames now contain the same standard WordPress installer, with one
+`daiosity-conflict-debugger/` folder. Use either for WP Admin or directory submission.
+
+## Diagnostic Data
+
+Analysis runs locally without an AI service or external diagnostic uploads.
+Browser capture is limited to logged-in administrators. Server diagnostics may
+record public request paths; URL queries and fragments are stripped, and common
+secrets and email addresses are redacted from messages. Review reports before
+sharing because arbitrary error text can still contain sensitive information.
+
+Storage is bounded to 50 runtime events, 40 request contexts and 12 scan summaries,
+plus the latest scan, resource snapshots and session settings. Use **Delete stored
+diagnostics** on the dashboard to clear these records. Uninstall also removes
+stored data and queued jobs. Deactivation cancels pending scans and sessions.
+
+For local checks and resubmission steps, see [WordPress review](docs/wordpress-review.md).
+
 ## Regression Fixtures
 
 Detector regression fixtures live in [`tests/fixtures/`](./tests/fixtures/). They provide small WordPress plugins for:
@@ -163,7 +185,6 @@ daiosity-conflict-debugger/
 |-- includes/
 |   |-- Admin/
 |   |-- Core/
-|   |-- Pro/
 |   `-- Support/
 |-- languages/
 |-- tools/
@@ -180,14 +201,14 @@ daiosity-conflict-debugger/
 - namespaced OOP architecture
 - WordPress-oriented coding standards
 - capability checks, nonces, sanitization, and escaping throughout admin actions
-- premium-ready structure without faking premium functionality
+- privacy redaction and administrator-only browser diagnostics
 
 ## Roadmap
 
 Near-term priorities:
 
 - stronger callback actor attribution so removal events can graduate from trace warnings to conservative pairwise findings when the mutator is proven
-- scan diff UX that highlights new findings, resolved findings, and confidence changes
+- same-trace request replay assertions that connect attributed mutation to observable failure
 - deeper exact ownership mapping
 - improved plugin-focused diagnostics
 - safer staging-oriented isolation workflows
